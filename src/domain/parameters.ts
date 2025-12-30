@@ -17,14 +17,14 @@ export interface GalaxyParameters {
 
 export const defaultParameters: GalaxyParameters = {
   starCount: 120000,
-  armCount: 4,
-  armTwist: 6.4,
-  armSpread: 0.26,
+  armCount: 5,
+  armTwist: 6.5,
+  armSpread: 0.17,
   diskRadius: 68,
   verticalThickness: 0.22,
   noise: 0.22,
   coreFalloff: 1.8,
-  brightness: 1.3,
+  brightness: 0.65,
   bulgeRadius: 9.0,
   bulgeStarCount: 50000,
   bulgeFalloff: 2.3,
