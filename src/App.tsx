@@ -1,4 +1,5 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from "react";
+import { mat4, vec3 } from "gl-matrix";
 import { defaultParameters, GalaxyParameters } from "@domain/parameters";
 import { findPreset, presets } from "@domain/presets";
 import { GalaxyRenderer } from "@gl/renderer";
@@ -17,9 +18,16 @@ const nebulaThemeVars: Record<string, string> = {
   "--glow": "rgba(255, 140, 90, 0.24)"
 };
 
+const MOBILE_STAR_CAP = 500_000;
+
 type WorkerResult =
   | { type: "result"; id: number; count: number; buffer: ArrayBuffer }
   | { type: "error"; id: number; message: string };
+
+type TiltReference = {
+  baseInverse: mat4;
+  baseForward: vec3;
+};
 
 const scrubMultiplier = (event: PointerEvent | React.PointerEvent) => {
   if (event.shiftKey) return 10;
@@ -37,12 +45,11 @@ export default function App() {
   const [status, setStatus] = useState("Ready");
   const [generating, setGenerating] = useState(false);
   const [rendererReady, setRendererReady] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const [tiltSupported, setTiltSupported] = useState(false);
   const [tiltEnabled, setTiltEnabled] = useState(false);
   const [tiltStatus, setTiltStatus] = useState<string | null>(null);
-  const tiltOrigin = useRef<{ beta: number; gamma: number; yaw: number; pitch: number } | null>(
-    null
-  );
+  const tiltOrigin = useRef<TiltReference | null>(null);
   const [controlsOpen, setControlsOpen] = useState<boolean>(true);
 
   // Apply theme tokens to CSS variables
@@ -50,6 +57,10 @@ export default function App() {
     Object.entries(nebulaThemeVars).forEach(([key, value]) => {
       document.documentElement.style.setProperty(key, value);
     });
+  }, []);
+
+  useEffect(() => {
+    setIsMobile(isProbablyMobile());
   }, []);
 
   useEffect(() => {
@@ -88,6 +99,11 @@ export default function App() {
       renderer.dispose();
     };
   }, []);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    setParams((prev) => applyMobileStarLimit(prev, true));
+  }, [isMobile]);
 
   // Canvas interactions (orbit + zoom) with touch support
   useEffect(() => {
@@ -255,16 +271,29 @@ export default function App() {
     if (!renderer) return;
 
     const handleOrientation = (event: DeviceOrientationEvent) => {
-      const { beta, gamma } = event;
+      const { alpha, beta, gamma } = event;
       if (beta === null || gamma === null) return;
+
+      const screenAngle = getScreenOrientationAngle();
+      const orientationMatrix = buildDeviceRotationMatrix(alpha ?? 0, beta, gamma, screenAngle);
+
       if (!tiltOrigin.current) {
         const { yaw, pitch } = renderer.getAngles();
-        tiltOrigin.current = { beta, gamma, yaw, pitch };
+        const baseForward = forwardFromAngles(yaw, pitch);
+        const baseInverse = mat4.invert(mat4.create(), orientationMatrix);
+        if (!baseInverse) return;
+        tiltOrigin.current = { baseInverse, baseForward };
         return;
       }
+
       const origin = tiltOrigin.current;
-      const yaw = origin.yaw + degToRad((gamma - origin.gamma) * 1.15);
-      const pitch = origin.pitch + degToRad((beta - origin.beta) * 0.85);
+      // Apply relative 4x4 rotation (homogeneous) to the initial camera forward vector to avoid Euler wrap flips.
+      const relative = mat4.multiply(mat4.create(), orientationMatrix, origin.baseInverse);
+      const rotatedForward = vec3.transformMat4(vec3.create(), origin.baseForward, relative);
+      vec3.normalize(rotatedForward, rotatedForward);
+
+      const yaw = Math.atan2(rotatedForward[2], rotatedForward[0]);
+      const pitch = Math.asin(clampNumber(rotatedForward[1], -1, 1));
       renderer.setAngles(yaw, pitch);
     };
 
@@ -273,21 +302,23 @@ export default function App() {
   }, [rendererReady, tiltEnabled]);
 
   const presetOptions = useMemo(() => presets.map((p) => p.name), []);
+  const starCountMax = isMobile ? Math.max(0, MOBILE_STAR_CAP - params.bulgeStarCount) : 5_000_000;
+  const bulgeStarCountMax = isMobile ? Math.max(0, MOBILE_STAR_CAP - params.starCount) : 100000;
 
   const updateParam = (key: keyof GalaxyParameters, value: number) => {
-    setParams((prev) => ({ ...prev, [key]: value }));
+    setParams((prev) => applyMobileStarLimit({ ...prev, [key]: value }, isMobile));
   };
 
   const loadPreset = (name: string) => {
     const preset = findPreset(name);
     if (!preset) return;
     setPresetName(name);
-    setParams(preset);
+    setParams(applyMobileStarLimit(preset, isMobile));
   };
 
   const resetDefault = () => {
     setPresetName("Default");
-    setParams({ ...defaultParameters });
+    setParams(applyMobileStarLimit({ ...defaultParameters }, isMobile));
   };
 
   const handleZoom = (delta: number) => {
@@ -369,7 +400,10 @@ export default function App() {
                 <button className="btn secondary" onClick={resetDefault}>
                   Reset defaults
                 </button>
-                <button className="btn secondary" onClick={() => setParams((p) => ({ ...p }))}>
+                <button
+                  className="btn secondary"
+                  onClick={() => setParams((p) => applyMobileStarLimit({ ...p }, isMobile))}
+                >
                   Refresh
                 </button>
               </div>
@@ -391,7 +425,7 @@ export default function App() {
                   label="Star count"
                   value={params.starCount}
                   min={1000}
-                  max={5_000_000}
+                  max={starCountMax}
                   step={10_000}
                   decimals={0}
                   onChange={(v) => updateParam("starCount", v)}
@@ -487,7 +521,7 @@ export default function App() {
                   label="Bulge star count"
                   value={params.bulgeStarCount}
                   min={0}
-                  max={100000}
+                  max={bulgeStarCountMax}
                   step={1000}
                   decimals={0}
                   onChange={(v) => updateParam("bulgeStarCount", v)}
@@ -528,6 +562,27 @@ export default function App() {
   );
 }
 
+function isProbablyMobile() {
+  if (typeof window === "undefined") return false;
+  const hasCoarsePointer = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const touchUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+  return hasCoarsePointer || touchUA;
+}
+
+function applyMobileStarLimit(params: GalaxyParameters, isMobile: boolean): GalaxyParameters {
+  if (!isMobile) return params;
+  const cappedBulge = Math.min(params.bulgeStarCount, MOBILE_STAR_CAP);
+  const remaining = Math.max(0, MOBILE_STAR_CAP - cappedBulge);
+  const cappedStarCount = Math.min(params.starCount, remaining);
+
+  if (cappedStarCount === params.starCount && cappedBulge === params.bulgeStarCount) {
+    return params;
+  }
+
+  return { ...params, starCount: cappedStarCount, bulgeStarCount: cappedBulge };
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="section">
@@ -559,13 +614,32 @@ function NumericField({
   const startValue = useRef(value);
   const isDragging = useRef(false);
   const activePointerId = useRef<number | null>(null);
+  const pendingValue = useRef(value);
+  const scrubRaf = useRef<number | null>(null);
 
-  useEffect(() => setDraft(value), [value]);
+  useEffect(() => {
+    setDraft(value);
+    startValue.current = value;
+    pendingValue.current = value;
+  }, [value]);
+
+  const clampAndRound = (next: number) => roundTo(clampNumber(next, min, max), decimals);
 
   const commit = (next: number) => {
-    const rounded = roundTo(clampNumber(next, min, max), decimals);
+    const rounded = clampAndRound(next);
     setDraft(rounded);
-    onChange(rounded);
+    if (rounded !== value) {
+      onChange(rounded);
+    }
+  };
+
+  // Throttle UI updates to animation frames while dragging to keep pointer handlers light.
+  const scheduleDraftSync = () => {
+    if (scrubRaf.current !== null) return;
+    scrubRaf.current = requestAnimationFrame(() => {
+      scrubRaf.current = null;
+      setDraft(pendingValue.current);
+    });
   };
 
   const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -585,6 +659,7 @@ function NumericField({
     activePointerId.current = e.pointerId;
     startX.current = e.clientX;
     startValue.current = draft;
+    pendingValue.current = draft;
     isDragging.current = true;
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
@@ -594,14 +669,19 @@ function NumericField({
   const handlePointerMove = (e: PointerEvent) => {
     if (!isDragging.current || e.pointerId !== activePointerId.current) return;
     const delta = e.clientX - startX.current;
-    const next = startValue.current + delta * step * scrubMultiplier(e);
-    commit(next);
+    pendingValue.current = clampAndRound(startValue.current + delta * step * scrubMultiplier(e));
+    scheduleDraftSync();
   };
 
   const handlePointerUp = (e: PointerEvent) => {
     if (e.pointerId !== activePointerId.current) return;
     isDragging.current = false;
     activePointerId.current = null;
+    if (scrubRaf.current !== null) {
+      cancelAnimationFrame(scrubRaf.current);
+      scrubRaf.current = null;
+    }
+    commit(pendingValue.current);
     window.removeEventListener("pointermove", handlePointerMove);
     window.removeEventListener("pointerup", handlePointerUp);
     window.removeEventListener("pointercancel", handlePointerUp);
@@ -612,6 +692,10 @@ function NumericField({
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerUp);
+      if (scrubRaf.current !== null) {
+        cancelAnimationFrame(scrubRaf.current);
+        scrubRaf.current = null;
+      }
     },
     []
   );
@@ -656,6 +740,43 @@ function NumericField({
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function buildDeviceRotationMatrix(alpha: number, beta: number, gamma: number, screenAngle: number) {
+  const rotZ = mat4.fromZRotation(mat4.create(), degToRad(alpha));
+  const rotX = mat4.fromXRotation(mat4.create(), degToRad(beta));
+  const rotY = mat4.fromYRotation(mat4.create(), degToRad(gamma));
+  const orientation = mat4.create();
+  mat4.multiply(orientation, rotZ, rotX);
+  mat4.multiply(orientation, orientation, rotY);
+
+  if (screenAngle) {
+    const screenRot = mat4.fromZRotation(mat4.create(), degToRad(-screenAngle));
+    mat4.multiply(orientation, screenRot, orientation);
+  }
+
+  return orientation;
+}
+
+function forwardFromAngles(yaw: number, pitch: number) {
+  const forward = vec3.fromValues(
+    Math.cos(pitch) * Math.cos(yaw),
+    Math.sin(pitch),
+    Math.cos(pitch) * Math.sin(yaw)
+  );
+  return vec3.normalize(vec3.create(), forward);
+}
+
+function getScreenOrientationAngle() {
+  if (typeof window === "undefined") return 0;
+  if (typeof window.screen?.orientation?.angle === "number") {
+    return window.screen.orientation.angle;
+  }
+  const legacy = (window as unknown as { orientation?: number }).orientation;
+  if (typeof legacy === "number") {
+    return legacy;
+  }
+  return 0;
 }
 
 function degToRad(value: number) {
