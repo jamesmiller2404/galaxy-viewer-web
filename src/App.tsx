@@ -90,15 +90,7 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false);
   const tiltOrigin = useRef<TiltReference | null>(null);
   const [controlsOpen, setControlsOpen] = useState<boolean>(true);
-  const [controlMode, setControlMode] = useState<"play" | "advanced">("play");
-  const quickSteps = useMemo(
-    () => [
-      "Orbit: drag the galaxy and feel the parallax.",
-      "Zoom: scroll or pinch, then tap Full view for immersion.",
-      "Vibe shift: hit Surprise me or tap a preset card."
-    ],
-    []
-  );
+  const [controlMode, setControlMode] = useState<"explore" | "advanced">("explore");
 
   // Apply theme tokens to CSS variables
   useEffect(() => {
@@ -454,33 +446,9 @@ export default function App() {
       {!fullscreenMode && (
         <header className="title-banner">
           <div className="title-text">
-            <h1>Nebula Galaxy</h1>
-            <p className="title-subtitle">Procedural galaxy viewer (web)</p>
+            <h1>Galaxy Forms Explorere</h1>
           </div>
           <div className="title-actions">
-            <div className="cta-row">
-              <button className="btn primary" type="button" onClick={surpriseMe}>
-                Surprise me
-              </button>
-              <button
-                className={`btn ghost help-toggle ${helpOpen ? "is-active" : ""}`}
-                type="button"
-                aria-expanded={helpOpen}
-                aria-controls="help-popover"
-                onClick={() => setHelpOpen((open) => !open)}
-              >
-                Quick tips
-              </button>
-            </div>
-            <button
-              className={`icon-btn help-btn ${helpOpen ? "is-active" : ""}`}
-              type="button"
-              aria-expanded={helpOpen}
-              aria-controls="help-popover"
-              onClick={() => setHelpOpen((open) => !open)}
-            >
-              ?
-            </button>
             <div className="title-status">
               {status}
               {generating ? " - working..." : ""}
@@ -498,57 +466,60 @@ export default function App() {
             </button>
           </div>
           <ul className="help-list">
-            <li>Start with a preset card or hit Surprise me — it loads and regenerates instantly.</li>
+            <li>Start with a preset card or hit Surprise me - it loads and regenerates instantly.</li>
             <li>Step 1: Drag to orbit. Step 2: Pinch or tap + / - to zoom. Step 3: Switch a preset.</li>
-            <li>Play mode sliders are friendly; Advanced keeps the detailed knobs and scrubbable labels.</li>
+            <li>Explore mode sliders are friendly; Advanced keeps the detailed knobs and scrubbable labels.</li>
             <li>Full view toggles fullscreen; on mobile, tilt can steer if available.</li>
           </ul>
         </aside>
       )}
 
-      {!fullscreenMode && (
-        <div className="quick-steps-strip">
-          {quickSteps.map((step, index) => (
-            <div key={step} className="quick-step">
-              <span className="quick-step-index">{index + 1}</span>
-              <span className="quick-step-text">{step}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
       <div className="layout">
         <section className={`panel viewport-panel ${fullscreenMode ? "is-immersive" : ""}`}>
-          {!fullscreenMode && <div className="panel-heading">Viewport</div>}
+          {!fullscreenMode && (
+            <div className="panel-heading-row">
+              <div className="panel-heading">Viewport</div>
+              <button
+                className={`icon-btn help-btn ${helpOpen ? "is-active" : ""}`}
+                type="button"
+                aria-expanded={helpOpen}
+                aria-controls="help-popover"
+                aria-label="Toggle help"
+                onClick={() => setHelpOpen((open) => !open)}
+              >
+                ?
+              </button>
+            </div>
+          )}
+          {!fullscreenMode && (
+            <div className="viewport-toolbar">
+              <div className="zoom-controls" aria-label="Zoom controls">
+                <button className="zoom-btn" onClick={() => handleZoom(-8)} aria-label="Zoom in">
+                  +
+                </button>
+                <button className="zoom-btn" onClick={() => handleZoom(8)} aria-label="Zoom out">
+                  -
+                </button>
+              </div>
+              <button className="fullscreen-btn" onClick={toggleFullscreenMode} type="button">
+                Full view
+              </button>
+            </div>
+          )}
           <div className="canvas-shell" ref={viewportShellRef}>
             <canvas ref={canvasRef} className="viewport" />
             {!fullscreenMode && (
               <div className={`scene-badge ${generating ? "is-loading" : ""}`}>
                 <div className="scene-title">{presetName}</div>
-                <div className="scene-meta">
-                  {params.starCount.toLocaleString()} disk · {params.bulgeStarCount.toLocaleString()} core stars
-                </div>
               </div>
             )}
-            <div className="view-actions">
-              {!fullscreenMode && (
-                <div className="zoom-controls" aria-label="Zoom controls">
-                  <button className="zoom-btn" onClick={() => handleZoom(-8)} aria-label="Zoom in">
-                    +
-                  </button>
-                  <button className="zoom-btn" onClick={() => handleZoom(8)} aria-label="Zoom out">
-                    -
-                  </button>
-                </div>
-              )}
-              <button
-                className={`fullscreen-btn ${fullscreenMode ? "is-active" : ""}`}
-                onClick={toggleFullscreenMode}
-                type="button"
-              >
-                {fullscreenMode ? "Exit full view" : "Full view"}
-              </button>
-            </div>
+            {fullscreenMode && (
+              <div className="view-actions">
+                <button className="fullscreen-btn is-active" onClick={toggleFullscreenMode} type="button">
+                  Exit full view
+                </button>
+              </div>
+            )}
             {!fullscreenMode && (
               <div className="hint">
                 Drag to orbit | Pinch or use + / - to zoom
@@ -586,13 +557,13 @@ export default function App() {
                   </button>
                   <div className="mode-toggle" role="tablist" aria-label="Control mode">
                     <button
-                      className={`mode-tab ${controlMode === "play" ? "is-active" : ""}`}
+                      className={`mode-tab ${controlMode === "explore" ? "is-active" : ""}`}
                       role="tab"
-                      aria-selected={controlMode === "play"}
-                      onClick={() => setControlMode("play")}
+                      aria-selected={controlMode === "explore"}
+                      onClick={() => setControlMode("explore")}
                       type="button"
                     >
-                      Play
+                      Explore
                     </button>
                     <button
                       className={`mode-tab ${controlMode === "advanced" ? "is-active" : ""}`}
@@ -633,11 +604,11 @@ export default function App() {
               </div>
             </div>
             <div className="controls-scroll">
-              {controlMode === "play" ? (
+              {controlMode === "explore" ? (
                 <>
                   <div className="play-hero">
                     <div className="play-hero-copy">
-                      <div className="eyebrow">Play mode</div>
+                      <div className="eyebrow">Explore mode</div>
                       <p>Pick a vibe or shuffle for a new galaxy. Great for quick exploration.</p>
                     </div>
                     <div className="chip-row">
@@ -645,7 +616,7 @@ export default function App() {
                         Surprise me
                       </button>
                       <button className="btn ghost" onClick={() => setControlMode("advanced")}>
-                        Go to advanced
+                        Advanced controls
                       </button>
                     </div>
                   </div>
