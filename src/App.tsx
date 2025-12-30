@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from "react";
-import { mat4, vec3 } from "gl-matrix";
+import { mat4, quat, vec3 } from "gl-matrix";
 import { defaultParameters, GalaxyParameters } from "@domain/parameters";
 import { findPreset, presets } from "@domain/presets";
 import { GalaxyRenderer } from "@gl/renderer";
@@ -332,6 +332,20 @@ export default function App() {
     window.addEventListener("deviceorientation", handleOrientation, true);
     return () => window.removeEventListener("deviceorientation", handleOrientation, true);
   }, [rendererReady, tiltEnabled]);
+
+  useEffect(() => {
+    if (!tiltEnabled) return;
+    const resetTiltOrigin = () => {
+      tiltOrigin.current = null;
+    };
+    const screenOrientation = window.screen?.orientation;
+    window.addEventListener("orientationchange", resetTiltOrigin);
+    screenOrientation?.addEventListener?.("change", resetTiltOrigin);
+    return () => {
+      window.removeEventListener("orientationchange", resetTiltOrigin);
+      screenOrientation?.removeEventListener?.("change", resetTiltOrigin);
+    };
+  }, [tiltEnabled]);
 
   const presetOptions = useMemo(() => presets.map((p) => p.name), []);
   const starCountMax = isMobile ? Math.max(0, MOBILE_STAR_CAP - params.bulgeStarCount) : 5_000_000;
@@ -847,19 +861,24 @@ function clampNumber(value: number, min: number, max: number) {
 }
 
 function buildDeviceRotationMatrix(alpha: number, beta: number, gamma: number, screenAngle: number) {
-  const rotZ = mat4.fromZRotation(mat4.create(), degToRad(alpha));
-  const rotX = mat4.fromXRotation(mat4.create(), degToRad(beta));
-  const rotY = mat4.fromYRotation(mat4.create(), degToRad(gamma));
-  const orientation = mat4.create();
-  mat4.multiply(orientation, rotZ, rotX);
-  mat4.multiply(orientation, orientation, rotY);
+  const betaRad = degToRad(beta);
+  const alphaRad = degToRad(alpha);
+  const gammaRad = degToRad(gamma);
+  const orientRad = degToRad(screenAngle);
 
-  if (screenAngle) {
-    const screenRot = mat4.fromZRotation(mat4.create(), degToRad(-screenAngle));
-    mat4.multiply(orientation, screenRot, orientation);
+  // Match the device-orientation quaternion order so landscape screen rotation is handled.
+  const q = quat.create();
+  const qx = quat.setAxisAngle(quat.create(), [1, 0, 0], betaRad);
+  const qy = quat.setAxisAngle(quat.create(), [0, 1, 0], alphaRad);
+  const qz = quat.setAxisAngle(quat.create(), [0, 0, 1], -gammaRad);
+  quat.multiply(q, qy, qx);
+  quat.multiply(q, q, qz);
+  quat.multiply(q, q, quat.setAxisAngle(quat.create(), [1, 0, 0], -Math.PI / 2));
+  if (orientRad) {
+    quat.multiply(q, q, quat.setAxisAngle(quat.create(), [0, 0, 1], -orientRad));
   }
 
-  return orientation;
+  return mat4.fromQuat(mat4.create(), q);
 }
 
 function forwardFromAngles(yaw: number, pitch: number) {
