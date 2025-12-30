@@ -43,6 +43,7 @@ export default function App() {
   const tiltOrigin = useRef<{ beta: number; gamma: number; yaw: number; pitch: number } | null>(
     null
   );
+  const [controlsOpen, setControlsOpen] = useState<boolean>(true);
 
   // Apply theme tokens to CSS variables
   useEffect(() => {
@@ -52,7 +53,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    setTiltSupported(typeof window !== "undefined" && "DeviceOrientationEvent" in window);
+    if (typeof window === "undefined") return;
+    setTiltSupported("DeviceOrientationEvent" in window);
+    const ensureOpenOnDesktop = () => {
+      if (window.innerWidth > 920) {
+        setControlsOpen(true);
+      }
+    };
+    window.addEventListener("resize", ensureOpenOnDesktop);
+    return () => window.removeEventListener("resize", ensureOpenOnDesktop);
   }, []);
 
   // Init renderer
@@ -216,6 +225,31 @@ export default function App() {
   }, [params]);
 
   useEffect(() => {
+    if (!rendererReady || !tiltSupported || tiltEnabled) return;
+    const motionEvent = window.DeviceOrientationEvent as typeof DeviceOrientationEvent & {
+      requestPermission?: () => Promise<PermissionState>;
+    };
+
+    const activateTilt = async () => {
+      try {
+        if (typeof motionEvent?.requestPermission === "function") {
+          const permission = await motionEvent.requestPermission();
+          if (permission !== "granted") {
+            setTiltStatus("Tilt blocked by permission");
+            return;
+          }
+        }
+        setTiltEnabled(true);
+        setTiltStatus("Tilt steering active");
+      } catch {
+        setTiltStatus("Tilt unavailable");
+      }
+    };
+
+    activateTilt();
+  }, [rendererReady, tiltSupported, tiltEnabled]);
+
+  useEffect(() => {
     if (!rendererReady || !tiltEnabled) return;
     const renderer = rendererRef.current;
     if (!renderer) return;
@@ -260,42 +294,6 @@ export default function App() {
     rendererRef.current?.zoom(delta);
   };
 
-  const enableTilt = async () => {
-    if (!tiltSupported) {
-      setTiltStatus("Tilt needs a device with motion sensors.");
-      return;
-    }
-    const motionEvent = window.DeviceOrientationEvent as typeof DeviceOrientationEvent & {
-      requestPermission?: () => Promise<PermissionState>;
-    };
-    if (typeof motionEvent?.requestPermission === "function") {
-      try {
-        const permission = await motionEvent.requestPermission();
-        if (permission !== "granted") {
-          setTiltStatus("Motion access denied");
-          return;
-        }
-      } catch {
-        setTiltStatus("Motion access blocked");
-        return;
-      }
-    }
-    tiltOrigin.current = null;
-    setTiltEnabled(true);
-    setTiltStatus("Tilt steering enabled");
-  };
-
-  const disableTilt = () => {
-    setTiltEnabled(false);
-    tiltOrigin.current = null;
-    setTiltStatus("Tilt steering off");
-  };
-
-  const recenterTilt = () => {
-    tiltOrigin.current = null;
-    setTiltStatus("Tilt re-centered");
-  };
-
   return (
     <div className="page">
       <header className="title-banner">
@@ -323,55 +321,38 @@ export default function App() {
               </button>
             </div>
             <div className="hint">
-              {tiltEnabled
-                ? "Tilt or drag to orbit | Pinch or + / - to zoom | Tap Re-center if drift appears"
-                : "Drag to orbit | Scroll or pinch to zoom | Tap + / - if needed"}
+              Drag to orbit | Pinch or use + / - to zoom
+              {tiltSupported ? " | Tilt to steer on mobile" : ""}
             </div>
-          </div>
-          <div className="motion-row">
-            <div className="motion-copy">
-              <div className="motion-title">Motion steering</div>
-              <div className="motion-subtitle">
-                {tiltEnabled
-                  ? "Tilt to orbit; dragging still works. Pinch or use + / - to zoom. Re-center if drift appears."
-                  : tiltSupported
-                  ? "Enable device tilt on mobile for gimbal-like control."
-                  : "Motion sensors not detected in this browser."}
-              </div>
-              {tiltStatus && <div className="motion-status">{tiltStatus}</div>}
-            </div>
-            <div className="chip-row motion-actions">
-              {!tiltEnabled ? (
-                <button className="btn secondary" onClick={enableTilt} disabled={!tiltSupported}>
-                  {tiltSupported ? "Enable tilt" : "Tilt unavailable"}
-                </button>
-              ) : (
-                <>
-                  <button className="btn secondary" onClick={recenterTilt}>
-                    Re-center
-                  </button>
-                  <button className="btn ghost" onClick={disableTilt}>
-                    Use touch orbit
-                  </button>
-                </>
-              )}
-            </div>
+            {tiltStatus && <div className="tilt-chip">{tiltStatus}</div>}
           </div>
         </section>
 
-        <section className="panel controls-panel">
-          <div className="panel-heading">Controls</div>
-          <div className="controls-scroll">
-            <div className="scrub-hint">
-              <span className="scrub-handle" aria-hidden="true">
-                {"<>"}
-              </span>
-              <div className="scrub-text">
-                Drag any label to scrub values. Hold Shift for 10x steps and Alt for 0.1x precision.
-              </div>
+        <section className={`panel controls-panel ${controlsOpen ? "is-open" : "is-closed"}`}>
+          <div
+            className="controls-header"
+            onClick={() => {
+              if (!controlsOpen) setControlsOpen(true);
+            }}
+          >
+            <button
+              className="controls-grip"
+              aria-label={controlsOpen ? "Hide controls" : "Show controls"}
+              onClick={() => setControlsOpen((open) => !open)}
+              type="button"
+            />
+            <div className="controls-heading">
+              <div className="panel-heading">Controls</div>
+              <button
+                className="btn ghost sheet-toggle"
+                type="button"
+                aria-expanded={controlsOpen}
+                onClick={() => setControlsOpen((open) => !open)}
+              >
+                {controlsOpen ? "Hide" : "Show"}
+              </button>
             </div>
-
-            <div className="toolbar">
+            <div className="controls-meta">
               <div className="stack">
                 <label className="small-label">Preset</label>
                 <select
@@ -384,16 +365,23 @@ export default function App() {
                   ))}
                 </select>
               </div>
-              <div className="stack">
-                <label className="small-label">Actions</label>
-                <div className="chip-row">
-                  <button className="btn secondary" onClick={resetDefault}>
-                    Reset defaults
-                  </button>
-                  <button className="btn secondary" onClick={() => setParams((p) => ({ ...p }))}>
-                    Refresh
-                  </button>
-                </div>
+              <div className="chip-row quick-actions">
+                <button className="btn secondary" onClick={resetDefault}>
+                  Reset defaults
+                </button>
+                <button className="btn secondary" onClick={() => setParams((p) => ({ ...p }))}>
+                  Refresh
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="controls-scroll">
+            <div className="scrub-hint">
+              <span className="scrub-handle" aria-hidden="true">
+                {"<>"}
+              </span>
+              <div className="scrub-text">
+                Drag any label to scrub values. Hold Shift for 10x steps and Alt for 0.1x precision.
               </div>
             </div>
 
