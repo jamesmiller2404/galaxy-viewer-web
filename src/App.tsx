@@ -570,6 +570,7 @@ function NumericField({
   const startX = useRef(0);
   const startValue = useRef(value);
   const isDragging = useRef(false);
+  const activePointerId = useRef<number | null>(null);
 
   useEffect(() => setDraft(value), [value]);
 
@@ -593,30 +594,36 @@ function NumericField({
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    activePointerId.current = e.pointerId;
     startX.current = e.clientX;
     startValue.current = draft;
     isDragging.current = true;
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
   };
 
   const handlePointerMove = (e: PointerEvent) => {
-    if (!isDragging.current) return;
+    if (!isDragging.current || e.pointerId !== activePointerId.current) return;
     const delta = e.clientX - startX.current;
     const next = startValue.current + delta * step * scrubMultiplier(e);
     commit(next);
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (e: PointerEvent) => {
+    if (e.pointerId !== activePointerId.current) return;
     isDragging.current = false;
+    activePointerId.current = null;
     window.removeEventListener("pointermove", handlePointerMove);
     window.removeEventListener("pointerup", handlePointerUp);
+    window.removeEventListener("pointercancel", handlePointerUp);
   };
 
   useEffect(
     () => () => {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
     },
     []
   );
