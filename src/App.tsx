@@ -30,6 +30,7 @@ type TiltReference = {
 };
 
 const DEFAULT_PRESET_NAME = "Barred Spiral (SBb)";
+const TILT_RESPONSE_GAIN = 1.5;
 
 type FeaturedPresetCard = {
   title: string;
@@ -169,7 +170,7 @@ export default function App() {
     let lastX = 0;
     let lastY = 0;
     let lastPinchDistance: number | null = null;
-    const pinchScale = 0.04;
+    const pinchScale = 0.12;
 
     const updatePointer = (e: PointerEvent) => {
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -345,8 +346,16 @@ export default function App() {
       const rotatedForward = vec3.transformMat4(vec3.create(), origin.baseForward, relative);
       vec3.normalize(rotatedForward, rotatedForward);
 
-      const yaw = Math.atan2(rotatedForward[2], rotatedForward[0]);
-      const pitch = Math.asin(clampNumber(rotatedForward[1], -1, 1));
+      // Boost tilt responsiveness for mobile.
+      const delta = vec3.subtract(vec3.create(), rotatedForward, origin.baseForward);
+      const boostedForward = vec3.scaleAndAdd(vec3.create(), origin.baseForward, delta, TILT_RESPONSE_GAIN);
+      if (!vec3.length(boostedForward)) {
+        return;
+      }
+      vec3.normalize(boostedForward, boostedForward);
+
+      const yaw = Math.atan2(boostedForward[2], boostedForward[0]);
+      const pitch = Math.asin(clampNumber(boostedForward[1], -1, 1));
       renderer.setAngles(yaw, pitch);
     };
 
