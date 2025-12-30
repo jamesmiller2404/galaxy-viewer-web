@@ -18,7 +18,7 @@ const nebulaThemeVars: Record<string, string> = {
   "--glow": "rgba(255, 140, 90, 0.24)"
 };
 
-const MOBILE_STAR_CAP = 500_000;
+const MOBILE_STAR_CAP = 200_000;
 
 type WorkerResult =
   | { type: "result"; id: number; count: number; buffer: ArrayBuffer }
@@ -56,12 +56,6 @@ const featuredPresets: FeaturedPresetCard[] = [
     preset: "Flocculent Spiral",
     tag: "Soft arms",
     blurb: "Feathery, cloudlike arms that feel more organic."
-  },
-  {
-    title: "Cosmic Shell",
-    preset: "Shell",
-    tag: "Rippled halo",
-    blurb: "Gentle ring-like shell stretching beyond the disk."
   }
 ];
 
@@ -79,7 +73,7 @@ export default function App() {
   const currentRequestId = useRef(0);
   const [params, setParams] = useState<GalaxyParameters>({ ...defaultParameters });
   const [presetName, setPresetName] = useState<string>(DEFAULT_PRESET_NAME);
-  const [status, setStatus] = useState("Ready");
+  const [, setStatus] = useState("Ready");
   const [generating, setGenerating] = useState(false);
   const [rendererReady, setRendererReady] = useState(false);
   const [fullscreenMode, setFullscreenMode] = useState(false);
@@ -89,7 +83,6 @@ export default function App() {
   const [tiltStatus, setTiltStatus] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const tiltOrigin = useRef<TiltReference | null>(null);
-  const [controlsOpen, setControlsOpen] = useState<boolean>(true);
   const [controlMode, setControlMode] = useState<"explore" | "advanced">("explore");
 
   // Apply theme tokens to CSS variables
@@ -106,13 +99,6 @@ export default function App() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     setTiltSupported("DeviceOrientationEvent" in window);
-    const ensureOpenOnDesktop = () => {
-      if (window.innerWidth > 920) {
-        setControlsOpen(true);
-      }
-    };
-    window.addEventListener("resize", ensureOpenOnDesktop);
-    return () => window.removeEventListener("resize", ensureOpenOnDesktop);
   }, []);
 
   // Init renderer
@@ -405,11 +391,6 @@ export default function App() {
     setParams(applyMobileStarLimit({ ...choice.params }, isMobile));
   };
 
-  const resetDefault = () => {
-    setPresetName(DEFAULT_PRESET_NAME);
-    setParams(applyMobileStarLimit({ ...defaultParameters }, isMobile));
-  };
-
   const handleZoom = (delta: number) => {
     rendererRef.current?.zoom(delta);
   };
@@ -446,13 +427,7 @@ export default function App() {
       {!fullscreenMode && (
         <header className="title-banner">
           <div className="title-text">
-            <h1>Galaxy Forms Explorere</h1>
-          </div>
-          <div className="title-actions">
-            <div className="title-status">
-              {status}
-              {generating ? " - working..." : ""}
-            </div>
+            <h1>Galaxy Forms Explorer</h1>
           </div>
         </header>
       )}
@@ -466,7 +441,7 @@ export default function App() {
             </button>
           </div>
           <ul className="help-list">
-            <li>Start with a preset card or hit Surprise me - it loads and regenerates instantly.</li>
+            <li>Start with a preset card or hit Random Galaxy - it loads and regenerates instantly.</li>
             <li>Step 1: Drag to orbit. Step 2: Pinch or tap + / - to zoom. Step 3: Switch a preset.</li>
             <li>Explore mode sliders are friendly; Advanced keeps the detailed knobs and scrubbable labels.</li>
             <li>Full view toggles fullscreen; on mobile, tilt can steer if available.</li>
@@ -531,30 +506,11 @@ export default function App() {
         </section>
 
         {!fullscreenMode && (
-          <section className={`panel controls-panel ${controlsOpen ? "is-open" : "is-closed"}`}>
-            <div
-              className="controls-header"
-              onClick={() => {
-                if (!controlsOpen) setControlsOpen(true);
-              }}
-            >
-              <button
-                className="controls-grip"
-                aria-label={controlsOpen ? "Hide controls" : "Show controls"}
-                onClick={() => setControlsOpen((open) => !open)}
-                type="button"
-              />
+          <section className="panel controls-panel is-open">
+            <div className="controls-header">
               <div className="controls-heading">
                 <div className="panel-heading">Controls</div>
                 <div className="chip-row heading-actions">
-                  <button
-                    className="btn ghost sheet-toggle"
-                    type="button"
-                    aria-expanded={controlsOpen}
-                    onClick={() => setControlsOpen((open) => !open)}
-                  >
-                    {controlsOpen ? "Hide" : "Show"}
-                  </button>
                   <div className="mode-toggle" role="tablist" aria-label="Control mode">
                     <button
                       className={`mode-tab ${controlMode === "explore" ? "is-active" : ""}`}
@@ -576,47 +532,32 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-              </div>
-              <div className="controls-meta">
-                <div className="stack">
-                  <label className="small-label">Preset</label>
-                  <select
+                </div>
+                <div className="controls-meta">
+                  <div className="stack">
+                    <label className="small-label">Preset</label>
+                    <select
                     value={presetName}
                     onChange={(e) => loadPreset(e.target.value)}
                     className="select"
-                  >
-                    {presetOptions.map((name) => (
-                      <option key={name}>{name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="chip-row quick-actions">
-                  <button className="btn secondary" onClick={resetDefault}>
-                    Reset defaults
-                  </button>
-                  <button
-                    className="btn secondary"
-                    onClick={() => setParams((p) => applyMobileStarLimit({ ...p }, isMobile))}
-                  >
-                    Refresh
-                  </button>
+                    >
+                      {presetOptions.map((name) => (
+                        <option key={name}>{name}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="controls-scroll">
+              <div className="controls-scroll">
               {controlMode === "explore" ? (
                 <>
                   <div className="play-hero">
                     <div className="play-hero-copy">
                       <div className="eyebrow">Explore mode</div>
-                      <p>Pick a vibe or shuffle for a new galaxy. Great for quick exploration.</p>
                     </div>
                     <div className="chip-row">
                       <button className="btn primary" onClick={surpriseMe}>
-                        Surprise me
-                      </button>
-                      <button className="btn ghost" onClick={() => setControlMode("advanced")}>
-                        Advanced controls
+                        Random Galaxy
                       </button>
                     </div>
                   </div>
@@ -650,6 +591,15 @@ export default function App() {
                       onChange={(v) => updateParam("brightness", v)}
                     />
                     <PlaySlider
+                      label="Spiral arms"
+                      description="Number of major arms."
+                      value={params.armCount}
+                      min={1}
+                      max={8}
+                      step={1}
+                      onChange={(v) => updateParam("armCount", v)}
+                    />
+                    <PlaySlider
                       label="Spiral twist"
                       description="How tightly the arms wind."
                       value={params.armTwist}
@@ -666,6 +616,15 @@ export default function App() {
                       max={1}
                       step={0.01}
                       onChange={(v) => updateParam("armSpread", v)}
+                    />
+                    <PlaySlider
+                      label="Bulge height"
+                      description="Thicker or flatter central bulge."
+                      value={params.bulgeVerticalScale}
+                      min={0.1}
+                      max={4}
+                      step={0.05}
+                      onChange={(v) => updateParam("bulgeVerticalScale", v)}
                     />
                     <PlaySlider
                       label="Star count"
