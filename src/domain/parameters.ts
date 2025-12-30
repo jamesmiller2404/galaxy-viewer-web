@@ -16,20 +16,20 @@ export interface GalaxyParameters {
 }
 
 export const defaultParameters: GalaxyParameters = {
-  starCount: 60000,
-  armCount: 4,
-  armTwist: 5,
-  armSpread: 0.35,
-  diskRadius: 40,
-  verticalThickness: 0.5,
-  noise: 0.25,
-  coreFalloff: 2,
-  brightness: 1,
-  bulgeRadius: 5,
-  bulgeStarCount: 20000,
-  bulgeFalloff: 2,
-  bulgeVerticalScale: 0.8,
-  bulgeBrightness: 2
+  starCount: 80000,
+  armCount: 3,
+  armTwist: 7.5,
+  armSpread: 0.28,
+  diskRadius: 52,
+  verticalThickness: 0.42,
+  noise: 0.22,
+  coreFalloff: 1.9,
+  brightness: 1.1,
+  bulgeRadius: 7.5,
+  bulgeStarCount: 30000,
+  bulgeFalloff: 2.2,
+  bulgeVerticalScale: 0.9,
+  bulgeBrightness: 2.6
 };
 
 export interface StarBuffer {

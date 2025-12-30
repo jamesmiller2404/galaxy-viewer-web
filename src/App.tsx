@@ -29,6 +29,8 @@ type TiltReference = {
   baseForward: vec3;
 };
 
+const DEFAULT_PRESET_NAME = "Barred Spiral (SBb)";
+
 const scrubMultiplier = (event: PointerEvent | React.PointerEvent) => {
   if (event.shiftKey) return 10;
   if (event.altKey) return 0.1;
@@ -37,14 +39,16 @@ const scrubMultiplier = (event: PointerEvent | React.PointerEvent) => {
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const viewportShellRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<GalaxyRenderer | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const currentRequestId = useRef(0);
   const [params, setParams] = useState<GalaxyParameters>({ ...defaultParameters });
-  const [presetName, setPresetName] = useState<string>("Default");
+  const [presetName, setPresetName] = useState<string>(DEFAULT_PRESET_NAME);
   const [status, setStatus] = useState("Ready");
   const [generating, setGenerating] = useState(false);
   const [rendererReady, setRendererReady] = useState(false);
+  const [fullscreenMode, setFullscreenMode] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [tiltSupported, setTiltSupported] = useState(false);
   const [tiltEnabled, setTiltEnabled] = useState(false);
@@ -99,6 +103,33 @@ export default function App() {
       renderer.dispose();
     };
   }, []);
+
+  useEffect(() => {
+    if (!rendererReady) return;
+    const raf = requestAnimationFrame(() => {
+      const renderer = rendererRef.current;
+      if (!renderer) return;
+      renderer.resize();
+      renderer.render();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [rendererReady, fullscreenMode]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement && fullscreenMode) {
+        setFullscreenMode(false);
+      }
+      const renderer = rendererRef.current;
+      if (renderer) {
+        renderer.resize();
+        renderer.render();
+      }
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, [fullscreenMode]);
 
   useEffect(() => {
     if (!isMobile) return;
@@ -256,7 +287,7 @@ export default function App() {
           }
         }
         setTiltEnabled(true);
-        setTiltStatus("Tilt steering active");
+        setTiltStatus(null);
       } catch {
         setTiltStatus("Tilt unavailable");
       }
@@ -317,7 +348,7 @@ export default function App() {
   };
 
   const resetDefault = () => {
-    setPresetName("Default");
+    setPresetName(DEFAULT_PRESET_NAME);
     setParams(applyMobileStarLimit({ ...defaultParameters }, isMobile));
   };
 
@@ -325,238 +356,282 @@ export default function App() {
     rendererRef.current?.zoom(delta);
   };
 
+  const enterFullscreenMode = () => {
+    setFullscreenMode(true);
+    const shell = viewportShellRef.current;
+    if (shell?.requestFullscreen) {
+      shell.requestFullscreen().catch(() => {
+        /* ignore fullscreen errors */
+      });
+    }
+  };
+
+  const exitFullscreenMode = () => {
+    setFullscreenMode(false);
+    if (typeof document !== "undefined" && document.fullscreenElement) {
+      document.exitFullscreen?.().catch(() => {
+        /* ignore fullscreen errors */
+      });
+    }
+  };
+
+  const toggleFullscreenMode = () => {
+    if (fullscreenMode) {
+      exitFullscreenMode();
+    } else {
+      enterFullscreenMode();
+    }
+  };
+
   return (
-    <div className="page">
-      <header className="title-banner">
-        <div className="title-text">
-          <h1>Nebula Galaxy</h1>
-          <p className="title-subtitle">Procedural galaxy viewer (web)</p>
-        </div>
-        <div className="title-status">
-          {status}
-          {generating ? " - working..." : ""}
-        </div>
-      </header>
+    <div className={`page ${fullscreenMode ? "is-immersive" : ""}`}>
+      {!fullscreenMode && (
+        <header className="title-banner">
+          <div className="title-text">
+            <h1>Nebula Galaxy</h1>
+            <p className="title-subtitle">Procedural galaxy viewer (web)</p>
+          </div>
+          <div className="title-status">
+            {status}
+            {generating ? " - working..." : ""}
+          </div>
+        </header>
+      )}
 
       <div className="layout">
-        <section className="panel viewport-panel">
-          <div className="panel-heading">Viewport</div>
-          <div className="canvas-shell">
+        <section className={`panel viewport-panel ${fullscreenMode ? "is-immersive" : ""}`}>
+          {!fullscreenMode && <div className="panel-heading">Viewport</div>}
+          <div className="canvas-shell" ref={viewportShellRef}>
             <canvas ref={canvasRef} className="viewport" />
-            <div className="zoom-controls" aria-label="Zoom controls">
-              <button className="zoom-btn" onClick={() => handleZoom(-8)} aria-label="Zoom in">
-                +
-              </button>
-              <button className="zoom-btn" onClick={() => handleZoom(8)} aria-label="Zoom out">
-                -
+            <div className="view-actions">
+              {!fullscreenMode && (
+                <div className="zoom-controls" aria-label="Zoom controls">
+                  <button className="zoom-btn" onClick={() => handleZoom(-8)} aria-label="Zoom in">
+                    +
+                  </button>
+                  <button className="zoom-btn" onClick={() => handleZoom(8)} aria-label="Zoom out">
+                    -
+                  </button>
+                </div>
+              )}
+              <button
+                className={`fullscreen-btn ${fullscreenMode ? "is-active" : ""}`}
+                onClick={toggleFullscreenMode}
+                type="button"
+              >
+                {fullscreenMode ? "Exit full view" : "Full view"}
               </button>
             </div>
-            <div className="hint">
-              Drag to orbit | Pinch or use + / - to zoom
-              {tiltSupported ? " | Tilt to steer on mobile" : ""}
-            </div>
+            {!fullscreenMode && (
+              <div className="hint">
+                Drag to orbit | Pinch or use + / - to zoom
+                {tiltSupported ? " | Tilt to steer on mobile" : ""}
+              </div>
+            )}
             {tiltStatus && <div className="tilt-chip">{tiltStatus}</div>}
           </div>
         </section>
 
-        <section className={`panel controls-panel ${controlsOpen ? "is-open" : "is-closed"}`}>
-          <div
-            className="controls-header"
-            onClick={() => {
-              if (!controlsOpen) setControlsOpen(true);
-            }}
-          >
-            <button
-              className="controls-grip"
-              aria-label={controlsOpen ? "Hide controls" : "Show controls"}
-              onClick={() => setControlsOpen((open) => !open)}
-              type="button"
-            />
-            <div className="controls-heading">
-              <div className="panel-heading">Controls</div>
+        {!fullscreenMode && (
+          <section className={`panel controls-panel ${controlsOpen ? "is-open" : "is-closed"}`}>
+            <div
+              className="controls-header"
+              onClick={() => {
+                if (!controlsOpen) setControlsOpen(true);
+              }}
+            >
               <button
-                className="btn ghost sheet-toggle"
-                type="button"
-                aria-expanded={controlsOpen}
+                className="controls-grip"
+                aria-label={controlsOpen ? "Hide controls" : "Show controls"}
                 onClick={() => setControlsOpen((open) => !open)}
-              >
-                {controlsOpen ? "Hide" : "Show"}
-              </button>
-            </div>
-            <div className="controls-meta">
-              <div className="stack">
-                <label className="small-label">Preset</label>
-                <select
-                  value={presetName}
-                  onChange={(e) => loadPreset(e.target.value)}
-                  className="select"
-                >
-                  {presetOptions.map((name) => (
-                    <option key={name}>{name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="chip-row quick-actions">
-                <button className="btn secondary" onClick={resetDefault}>
-                  Reset defaults
-                </button>
+                type="button"
+              />
+              <div className="controls-heading">
+                <div className="panel-heading">Controls</div>
                 <button
-                  className="btn secondary"
-                  onClick={() => setParams((p) => applyMobileStarLimit({ ...p }, isMobile))}
+                  className="btn ghost sheet-toggle"
+                  type="button"
+                  aria-expanded={controlsOpen}
+                  onClick={() => setControlsOpen((open) => !open)}
                 >
-                  Refresh
+                  {controlsOpen ? "Hide" : "Show"}
                 </button>
               </div>
-            </div>
-          </div>
-          <div className="controls-scroll">
-            <div className="scrub-hint">
-              <span className="scrub-handle" aria-hidden="true">
-                {"<>"}
-              </span>
-              <div className="scrub-text">
-                Drag any label to scrub values. Hold Shift for 10x steps and Alt for 0.1x precision.
+              <div className="controls-meta">
+                <div className="stack">
+                  <label className="small-label">Preset</label>
+                  <select
+                    value={presetName}
+                    onChange={(e) => loadPreset(e.target.value)}
+                    className="select"
+                  >
+                    {presetOptions.map((name) => (
+                      <option key={name}>{name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="chip-row quick-actions">
+                  <button className="btn secondary" onClick={resetDefault}>
+                    Reset defaults
+                  </button>
+                  <button
+                    className="btn secondary"
+                    onClick={() => setParams((p) => applyMobileStarLimit({ ...p }, isMobile))}
+                  >
+                    Refresh
+                  </button>
+                </div>
               </div>
             </div>
+            <div className="controls-scroll">
+              <div className="scrub-hint">
+                <span className="scrub-handle" aria-hidden="true">
+                  {"<>"}
+                </span>
+                <div className="scrub-text">
+                  Drag any label to scrub values. Hold Shift for 10x steps and Alt for 0.1x precision.
+                </div>
+              </div>
 
-            <div className="controls-grid">
-              <Section title="Galaxy disk">
-                <NumericField
-                  label="Star count"
-                  value={params.starCount}
-                  min={1000}
-                  max={starCountMax}
-                  step={10_000}
-                  decimals={0}
-                  onChange={(v) => updateParam("starCount", v)}
-                />
-                <NumericField
-                  label="Arm count"
-                  value={params.armCount}
-                  min={1}
-                  max={8}
-                  step={1}
-                  decimals={0}
-                  onChange={(v) => updateParam("armCount", v)}
-                />
-                <NumericField
-                  label="Arm twist"
-                  value={params.armTwist}
-                  min={0}
-                  max={12}
-                  step={0.1}
-                  decimals={1}
-                  onChange={(v) => updateParam("armTwist", v)}
-                />
-                <NumericField
-                  label="Arm spread"
-                  value={params.armSpread}
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  decimals={2}
-                  onChange={(v) => updateParam("armSpread", v)}
-                />
-                <NumericField
-                  label="Disk radius"
-                  value={params.diskRadius}
-                  min={5}
-                  max={120}
-                  step={0.5}
-                  decimals={1}
-                  onChange={(v) => updateParam("diskRadius", v)}
-                />
-                <NumericField
-                  label="Vertical thickness"
-                  value={params.verticalThickness}
-                  min={0}
-                  max={5}
-                  step={0.05}
-                  decimals={2}
-                  onChange={(v) => updateParam("verticalThickness", v)}
-                />
-              </Section>
+              <div className="controls-grid">
+                <Section title="Galaxy disk">
+                  <NumericField
+                    label="Star count"
+                    value={params.starCount}
+                    min={1000}
+                    max={starCountMax}
+                    step={10_000}
+                    decimals={0}
+                    onChange={(v) => updateParam("starCount", v)}
+                  />
+                  <NumericField
+                    label="Arm count"
+                    value={params.armCount}
+                    min={1}
+                    max={8}
+                    step={1}
+                    decimals={0}
+                    onChange={(v) => updateParam("armCount", v)}
+                  />
+                  <NumericField
+                    label="Arm twist"
+                    value={params.armTwist}
+                    min={0}
+                    max={12}
+                    step={0.1}
+                    decimals={1}
+                    onChange={(v) => updateParam("armTwist", v)}
+                  />
+                  <NumericField
+                    label="Arm spread"
+                    value={params.armSpread}
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    decimals={2}
+                    onChange={(v) => updateParam("armSpread", v)}
+                  />
+                  <NumericField
+                    label="Disk radius"
+                    value={params.diskRadius}
+                    min={5}
+                    max={120}
+                    step={0.5}
+                    decimals={1}
+                    onChange={(v) => updateParam("diskRadius", v)}
+                  />
+                  <NumericField
+                    label="Vertical thickness"
+                    value={params.verticalThickness}
+                    min={0}
+                    max={5}
+                    step={0.05}
+                    decimals={2}
+                    onChange={(v) => updateParam("verticalThickness", v)}
+                  />
+                </Section>
 
-              <Section title="Noise & light">
-                <NumericField
-                  label="Noise"
-                  value={params.noise}
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  decimals={2}
-                  onChange={(v) => updateParam("noise", v)}
-                />
-                <NumericField
-                  label="Core falloff"
-                  value={params.coreFalloff}
-                  min={0.1}
-                  max={6}
-                  step={0.1}
-                  decimals={2}
-                  onChange={(v) => updateParam("coreFalloff", v)}
-                />
-                <NumericField
-                  label="Brightness"
-                  value={params.brightness}
-                  min={0.1}
-                  max={2.5}
-                  step={0.05}
-                  decimals={2}
-                  onChange={(v) => updateParam("brightness", v)}
-                />
-              </Section>
+                <Section title="Noise & light">
+                  <NumericField
+                    label="Noise"
+                    value={params.noise}
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    decimals={2}
+                    onChange={(v) => updateParam("noise", v)}
+                  />
+                  <NumericField
+                    label="Core falloff"
+                    value={params.coreFalloff}
+                    min={0.1}
+                    max={6}
+                    step={0.1}
+                    decimals={2}
+                    onChange={(v) => updateParam("coreFalloff", v)}
+                  />
+                  <NumericField
+                    label="Brightness"
+                    value={params.brightness}
+                    min={0.1}
+                    max={2.5}
+                    step={0.05}
+                    decimals={2}
+                    onChange={(v) => updateParam("brightness", v)}
+                  />
+                </Section>
 
-              <Section title="Bulge">
-                <NumericField
-                  label="Bulge radius"
-                  value={params.bulgeRadius}
-                  min={0.1}
-                  max={80}
-                  step={0.1}
-                  decimals={1}
-                  onChange={(v) => updateParam("bulgeRadius", v)}
-                />
-                <NumericField
-                  label="Bulge star count"
-                  value={params.bulgeStarCount}
-                  min={0}
-                  max={bulgeStarCountMax}
-                  step={1000}
-                  decimals={0}
-                  onChange={(v) => updateParam("bulgeStarCount", v)}
-                />
-                <NumericField
-                  label="Bulge falloff"
-                  value={params.bulgeFalloff}
-                  min={0.5}
-                  max={10}
-                  step={0.1}
-                  decimals={1}
-                  onChange={(v) => updateParam("bulgeFalloff", v)}
-                />
-                <NumericField
-                  label="Bulge vertical scale"
-                  value={params.bulgeVerticalScale}
-                  min={0.1}
-                  max={4}
-                  step={0.05}
-                  decimals={2}
-                  onChange={(v) => updateParam("bulgeVerticalScale", v)}
-                />
-                <NumericField
-                  label="Bulge brightness"
-                  value={params.bulgeBrightness}
-                  min={0.1}
-                  max={6}
-                  step={0.05}
-                  decimals={2}
-                  onChange={(v) => updateParam("bulgeBrightness", v)}
-                />
-              </Section>
+                <Section title="Bulge">
+                  <NumericField
+                    label="Bulge radius"
+                    value={params.bulgeRadius}
+                    min={0.1}
+                    max={80}
+                    step={0.1}
+                    decimals={1}
+                    onChange={(v) => updateParam("bulgeRadius", v)}
+                  />
+                  <NumericField
+                    label="Bulge star count"
+                    value={params.bulgeStarCount}
+                    min={0}
+                    max={bulgeStarCountMax}
+                    step={1000}
+                    decimals={0}
+                    onChange={(v) => updateParam("bulgeStarCount", v)}
+                  />
+                  <NumericField
+                    label="Bulge falloff"
+                    value={params.bulgeFalloff}
+                    min={0.5}
+                    max={10}
+                    step={0.1}
+                    decimals={1}
+                    onChange={(v) => updateParam("bulgeFalloff", v)}
+                  />
+                  <NumericField
+                    label="Bulge vertical scale"
+                    value={params.bulgeVerticalScale}
+                    min={0.1}
+                    max={4}
+                    step={0.05}
+                    decimals={2}
+                    onChange={(v) => updateParam("bulgeVerticalScale", v)}
+                  />
+                  <NumericField
+                    label="Bulge brightness"
+                    value={params.bulgeBrightness}
+                    min={0.1}
+                    max={6}
+                    step={0.05}
+                    decimals={2}
+                    onChange={(v) => updateParam("bulgeBrightness", v)}
+                  />
+                </Section>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        )}
       </div>
     </div>
   );

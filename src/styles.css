@@ -78,6 +78,53 @@ h1 {
   align-items: start;
 }
 
+.page.is-immersive {
+  max-width: none;
+  padding: 0;
+}
+
+.page.is-immersive .layout {
+  grid-template-columns: 1fr;
+  gap: 0;
+  min-height: 100vh;
+}
+
+.page.is-immersive .viewport-panel {
+  position: fixed;
+  inset: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: #000;
+  box-shadow: none;
+  z-index: 30;
+}
+
+.page.is-immersive .canvas-shell {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+}
+
+.page.is-immersive .viewport {
+  width: 100vw;
+  height: 100vh;
+  aspect-ratio: auto;
+}
+
+.page.is-immersive .title-banner,
+.page.is-immersive .controls-panel,
+.page.is-immersive .panel-heading,
+.page.is-immersive .hint {
+  display: none;
+}
+
+.page.is-immersive .tilt-chip {
+  top: calc(env(safe-area-inset-top) + 12px);
+  left: calc(env(safe-area-inset-left) + 12px);
+  background: rgba(0, 0, 0, 0.45);
+}
+
 .viewport-panel {
   position: relative;
 }
@@ -235,10 +282,21 @@ h1 {
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.25);
 }
 
-.zoom-controls {
+.view-actions {
   position: absolute;
   top: 12px;
   right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.page.is-immersive .view-actions {
+  top: calc(env(safe-area-inset-top) + 12px);
+  right: calc(env(safe-area-inset-right) + 12px);
+}
+
+.zoom-controls {
   display: flex;
   gap: 8px;
   padding: 6px;
@@ -247,6 +305,33 @@ h1 {
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(6px);
+}
+
+.fullscreen-btn {
+  border-radius: 10px;
+  border: 1px solid var(--panel-border);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
+  transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+
+.fullscreen-btn:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+}
+
+.fullscreen-btn.is-active {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.page.is-immersive .fullscreen-btn {
+  background: rgba(0, 0, 0, 0.55);
 }
 
 .zoom-btn {
