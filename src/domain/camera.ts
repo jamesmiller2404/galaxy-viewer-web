@@ -1,9 +1,9 @@
 import { mat4, vec3 } from "gl-matrix";
 
 export class Camera {
-  yaw = 0;
-  pitch = -0.35;
-  distance = 140;
+  yaw = 0.9;
+  pitch = -0.55;
+  distance = 180;
   target: vec3 = vec3.fromValues(0, 0, 0);
 
   rotate(deltaYaw: number, deltaPitch: number) {

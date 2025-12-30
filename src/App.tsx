@@ -29,7 +29,7 @@ type TiltReference = {
   baseForward: vec3;
 };
 
-const DEFAULT_PRESET_NAME = "Barred Spiral (SBb)";
+const DEFAULT_PRESET_NAME = "Andromeda (M31)";
 const TILT_RESPONSE_GAIN = 1.5;
 
 type FeaturedPresetCard = {
@@ -41,10 +41,10 @@ type FeaturedPresetCard = {
 
 const featuredPresets: FeaturedPresetCard[] = [
   {
-    title: "Showpiece Spiral",
-    preset: "Grand-Design Spiral",
-    tag: "Bright + orderly",
-    blurb: "Clean twin arms and a glowing core for an easy wow."
+    title: "Andromeda View",
+    preset: "Andromeda (M31)",
+    tag: "Warm core + dusty arms",
+    blurb: "Thin, inclined disk with dusty lanes fading to cool outer blue."
   },
   {
     title: "Starburst Glow",

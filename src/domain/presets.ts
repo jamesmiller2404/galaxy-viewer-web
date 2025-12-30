@@ -7,6 +7,10 @@ export interface Preset {
 
 export const presets: Preset[] = [
   {
+    name: "Andromeda (M31)",
+    params: { ...defaultParameters },
+  },
+  {
     name: "Elliptical (E0-E7)",
     params: {
       starCount: 80000,
@@ -141,7 +145,22 @@ export const presets: Preset[] = [
   },
   {
     name: "Barred Spiral (SBb)",
-    params: { ...defaultParameters }
+    params: {
+      starCount: 80000,
+      armCount: 3,
+      armTwist: 7.5,
+      armSpread: 0.28,
+      diskRadius: 52,
+      verticalThickness: 0.42,
+      noise: 0.22,
+      coreFalloff: 1.9,
+      brightness: 1.1,
+      bulgeRadius: 7.5,
+      bulgeStarCount: 30000,
+      bulgeFalloff: 2.2,
+      bulgeVerticalScale: 0.9,
+      bulgeBrightness: 2.6,
+    }
   },
   {
     name: "Barred Spiral (SBc)",

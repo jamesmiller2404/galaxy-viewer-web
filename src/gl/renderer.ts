@@ -182,9 +182,9 @@ export class GalaxyRenderer {
 
 function buildPalette() {
   const palette = new Float32Array(256 * 3);
-  const core = [1.0, 0.95, 0.9];
-  const mid = [0.85, 0.9, 1.0];
-  const outer = [0.45, 0.6, 1.0];
+  const core = [1.0, 0.94, 0.82];
+  const mid = [0.86, 0.68, 0.55];
+  const outer = [0.52, 0.68, 1.0];
 
   for (let i = 0; i < 256; i++) {
     const t = i / 255;
