@@ -78,6 +78,10 @@ h1 {
   align-items: start;
 }
 
+.viewport-panel {
+  position: relative;
+}
+
 .panel {
   border: 1px solid var(--panel-border);
   border-radius: 12px;
@@ -399,11 +403,40 @@ h1 {
 }
 
 @media (max-width: 920px) {
-  .layout { grid-template-columns: 1fr; }
+  .layout {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 100vh;
+  }
+
+  .viewport-panel {
+    position: sticky;
+    top: calc(env(safe-area-inset-top) + 12px);
+    z-index: 5;
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  }
+
+  .viewport-panel .canvas-shell {
+    max-height: min(68vh, 560px);
+  }
+
+  .viewport-panel .viewport {
+    width: 100%;
+    height: auto;
+    max-height: 62vh;
+  }
+
   .title-banner { flex-direction: column; align-items: flex-start; }
   .title-status { width: 100%; text-align: left; }
   h1 { font-size: 24px; }
-  .controls-panel { max-height: none; }
+  .controls-panel {
+    max-height: none;
+    flex: 1;
+  }
+  .controls-scroll {
+    -webkit-overflow-scrolling: touch;
+  }
   .motion-row { flex-direction: column; align-items: flex-start; }
   .motion-actions { width: 100%; flex-wrap: wrap; }
   .motion-actions .btn { flex: 1; text-align: center; }

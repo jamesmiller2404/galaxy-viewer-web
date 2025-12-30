@@ -310,7 +310,7 @@ export default function App() {
       </header>
 
       <div className="layout">
-        <section className="panel">
+        <section className="panel viewport-panel">
           <div className="panel-heading">Viewport</div>
           <div className="canvas-shell">
             <canvas ref={canvasRef} className="viewport" />
