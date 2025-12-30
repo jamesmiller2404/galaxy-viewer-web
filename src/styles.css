@@ -51,6 +51,12 @@ body {
   gap: 4px;
 }
 
+.title-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 h1 {
   margin: 0;
   font-size: 28px;
@@ -69,6 +75,71 @@ h1 {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
   font-weight: 600;
   white-space: nowrap;
+}
+
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-weight: 800;
+  font-size: 16px;
+  cursor: pointer;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.icon-btn:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.icon-btn:active {
+  transform: translateY(0);
+}
+
+.help-btn.is-active {
+  border-color: var(--accent);
+  background: rgba(255, 140, 90, 0.12);
+}
+
+.help-popover {
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  background: linear-gradient(145deg, rgba(17, 24, 39, 0.96), rgba(17, 24, 39, 0.82));
+  padding: 14px 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  width: min(100%, 520px);
+  align-self: flex-end;
+}
+
+.help-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.help-popover-title {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.help-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  line-height: 1.5;
+  font-size: 14px;
+  display: grid;
+  gap: 6px;
 }
 
 .layout {
@@ -538,6 +609,11 @@ h1 {
     align-items: flex-start;
   }
 
+  .title-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
   .title-status {
     width: 100%;
     text-align: left;
@@ -599,5 +675,9 @@ h1 {
     max-height: none;
     -webkit-overflow-scrolling: touch;
     padding-right: 6px;
+  }
+
+  .help-popover {
+    width: 100%;
   }
 }

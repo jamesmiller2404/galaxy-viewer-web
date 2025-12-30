@@ -53,6 +53,7 @@ export default function App() {
   const [tiltSupported, setTiltSupported] = useState(false);
   const [tiltEnabled, setTiltEnabled] = useState(false);
   const [tiltStatus, setTiltStatus] = useState<string | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
   const tiltOrigin = useRef<TiltReference | null>(null);
   const [controlsOpen, setControlsOpen] = useState<boolean>(true);
 
@@ -391,11 +392,39 @@ export default function App() {
             <h1>Nebula Galaxy</h1>
             <p className="title-subtitle">Procedural galaxy viewer (web)</p>
           </div>
-          <div className="title-status">
-            {status}
-            {generating ? " - working..." : ""}
+          <div className="title-actions">
+            <button
+              className={`icon-btn help-btn ${helpOpen ? "is-active" : ""}`}
+              type="button"
+              aria-expanded={helpOpen}
+              aria-controls="help-popover"
+              onClick={() => setHelpOpen((open) => !open)}
+            >
+              ?
+            </button>
+            <div className="title-status">
+              {status}
+              {generating ? " - working..." : ""}
+            </div>
           </div>
         </header>
+      )}
+
+      {!fullscreenMode && helpOpen && (
+        <aside className="help-popover" id="help-popover" role="dialog" aria-label="How to use">
+          <div className="help-popover-header">
+            <div className="help-popover-title">How to use</div>
+            <button className="icon-btn" type="button" onClick={() => setHelpOpen(false)} aria-label="Close help">
+              x
+            </button>
+          </div>
+          <ul className="help-list">
+            <li>Drag the galaxy to orbit. Scroll, pinch, or use + / - to zoom.</li>
+            <li>Use presets to load galaxy types. Reset defaults or Refresh to regenerate.</li>
+            <li>Drag any label to scrub values (Shift = 10x, Alt = 0.1x).</li>
+            <li>Full view toggles fullscreen; on mobile, tilt can steer if available.</li>
+          </ul>
+        </aside>
       )}
 
       <div className="layout">
