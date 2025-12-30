@@ -31,6 +31,40 @@ type TiltReference = {
 
 const DEFAULT_PRESET_NAME = "Barred Spiral (SBb)";
 
+type FeaturedPresetCard = {
+  title: string;
+  preset: string;
+  tag: string;
+  blurb: string;
+};
+
+const featuredPresets: FeaturedPresetCard[] = [
+  {
+    title: "Showpiece Spiral",
+    preset: "Grand-Design Spiral",
+    tag: "Bright + orderly",
+    blurb: "Clean twin arms and a glowing core for an easy wow."
+  },
+  {
+    title: "Starburst Glow",
+    preset: "Starburst",
+    tag: "Luminous core",
+    blurb: "Packed light pouring from the center with busy arms."
+  },
+  {
+    title: "Cloudy Whirlpool",
+    preset: "Flocculent Spiral",
+    tag: "Soft arms",
+    blurb: "Feathery, cloudlike arms that feel more organic."
+  },
+  {
+    title: "Cosmic Shell",
+    preset: "Shell",
+    tag: "Rippled halo",
+    blurb: "Gentle ring-like shell stretching beyond the disk."
+  }
+];
+
 const scrubMultiplier = (event: PointerEvent | React.PointerEvent) => {
   if (event.shiftKey) return 10;
   if (event.altKey) return 0.1;
@@ -56,6 +90,15 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false);
   const tiltOrigin = useRef<TiltReference | null>(null);
   const [controlsOpen, setControlsOpen] = useState<boolean>(true);
+  const [controlMode, setControlMode] = useState<"play" | "advanced">("play");
+  const quickSteps = useMemo(
+    () => [
+      "Orbit: drag the galaxy and feel the parallax.",
+      "Zoom: scroll or pinch, then tap Full view for immersion.",
+      "Vibe shift: hit Surprise me or tap a preset card."
+    ],
+    []
+  );
 
   // Apply theme tokens to CSS variables
   useEffect(() => {
@@ -362,6 +405,14 @@ export default function App() {
     setParams(applyMobileStarLimit(preset, isMobile));
   };
 
+  const surpriseMe = () => {
+    if (!presets.length) return;
+    const choice = presets[Math.floor(Math.random() * presets.length)];
+    if (!choice) return;
+    setPresetName(choice.name);
+    setParams(applyMobileStarLimit({ ...choice.params }, isMobile));
+  };
+
   const resetDefault = () => {
     setPresetName(DEFAULT_PRESET_NAME);
     setParams(applyMobileStarLimit({ ...defaultParameters }, isMobile));
@@ -407,6 +458,20 @@ export default function App() {
             <p className="title-subtitle">Procedural galaxy viewer (web)</p>
           </div>
           <div className="title-actions">
+            <div className="cta-row">
+              <button className="btn primary" type="button" onClick={surpriseMe}>
+                Surprise me
+              </button>
+              <button
+                className={`btn ghost help-toggle ${helpOpen ? "is-active" : ""}`}
+                type="button"
+                aria-expanded={helpOpen}
+                aria-controls="help-popover"
+                onClick={() => setHelpOpen((open) => !open)}
+              >
+                Quick tips
+              </button>
+            </div>
             <button
               className={`icon-btn help-btn ${helpOpen ? "is-active" : ""}`}
               type="button"
@@ -433,12 +498,23 @@ export default function App() {
             </button>
           </div>
           <ul className="help-list">
-            <li>Drag the galaxy to orbit. Scroll, pinch, or use + / - to zoom.</li>
-            <li>Use presets to load galaxy types. Reset defaults or Refresh to regenerate.</li>
-            <li>Drag any label to scrub values (Shift = 10x, Alt = 0.1x).</li>
+            <li>Start with a preset card or hit Surprise me — it loads and regenerates instantly.</li>
+            <li>Step 1: Drag to orbit. Step 2: Pinch or tap + / - to zoom. Step 3: Switch a preset.</li>
+            <li>Play mode sliders are friendly; Advanced keeps the detailed knobs and scrubbable labels.</li>
             <li>Full view toggles fullscreen; on mobile, tilt can steer if available.</li>
           </ul>
         </aside>
+      )}
+
+      {!fullscreenMode && (
+        <div className="quick-steps-strip">
+          {quickSteps.map((step, index) => (
+            <div key={step} className="quick-step">
+              <span className="quick-step-index">{index + 1}</span>
+              <span className="quick-step-text">{step}</span>
+            </div>
+          ))}
+        </div>
       )}
 
       <div className="layout">
@@ -446,6 +522,14 @@ export default function App() {
           {!fullscreenMode && <div className="panel-heading">Viewport</div>}
           <div className="canvas-shell" ref={viewportShellRef}>
             <canvas ref={canvasRef} className="viewport" />
+            {!fullscreenMode && (
+              <div className={`scene-badge ${generating ? "is-loading" : ""}`}>
+                <div className="scene-title">{presetName}</div>
+                <div className="scene-meta">
+                  {params.starCount.toLocaleString()} disk · {params.bulgeStarCount.toLocaleString()} core stars
+                </div>
+              </div>
+            )}
             <div className="view-actions">
               {!fullscreenMode && (
                 <div className="zoom-controls" aria-label="Zoom controls">
@@ -491,14 +575,36 @@ export default function App() {
               />
               <div className="controls-heading">
                 <div className="panel-heading">Controls</div>
-                <button
-                  className="btn ghost sheet-toggle"
-                  type="button"
-                  aria-expanded={controlsOpen}
-                  onClick={() => setControlsOpen((open) => !open)}
-                >
-                  {controlsOpen ? "Hide" : "Show"}
-                </button>
+                <div className="chip-row heading-actions">
+                  <button
+                    className="btn ghost sheet-toggle"
+                    type="button"
+                    aria-expanded={controlsOpen}
+                    onClick={() => setControlsOpen((open) => !open)}
+                  >
+                    {controlsOpen ? "Hide" : "Show"}
+                  </button>
+                  <div className="mode-toggle" role="tablist" aria-label="Control mode">
+                    <button
+                      className={`mode-tab ${controlMode === "play" ? "is-active" : ""}`}
+                      role="tab"
+                      aria-selected={controlMode === "play"}
+                      onClick={() => setControlMode("play")}
+                      type="button"
+                    >
+                      Play
+                    </button>
+                    <button
+                      className={`mode-tab ${controlMode === "advanced" ? "is-active" : ""}`}
+                      role="tab"
+                      aria-selected={controlMode === "advanced"}
+                      onClick={() => setControlMode("advanced")}
+                      type="button"
+                    >
+                      Advanced
+                    </button>
+                  </div>
+                </div>
               </div>
               <div className="controls-meta">
                 <div className="stack">
@@ -527,151 +633,238 @@ export default function App() {
               </div>
             </div>
             <div className="controls-scroll">
-              <div className="scrub-hint">
-                <span className="scrub-handle" aria-hidden="true">
-                  {"<>"}
-                </span>
-                <div className="scrub-text">
-                  Drag any label to scrub values. Hold Shift for 10x steps and Alt for 0.1x precision.
-                </div>
-              </div>
+              {controlMode === "play" ? (
+                <>
+                  <div className="play-hero">
+                    <div className="play-hero-copy">
+                      <div className="eyebrow">Play mode</div>
+                      <p>Pick a vibe or shuffle for a new galaxy. Great for quick exploration.</p>
+                    </div>
+                    <div className="chip-row">
+                      <button className="btn primary" onClick={surpriseMe}>
+                        Surprise me
+                      </button>
+                      <button className="btn ghost" onClick={() => setControlMode("advanced")}>
+                        Go to advanced
+                      </button>
+                    </div>
+                  </div>
 
-              <div className="controls-grid">
-                <Section title="Galaxy disk">
-                  <NumericField
-                    label="Star count"
-                    value={params.starCount}
-                    min={1000}
-                    max={starCountMax}
-                    step={10_000}
-                    decimals={0}
-                    onChange={(v) => updateParam("starCount", v)}
-                  />
-                  <NumericField
-                    label="Arm count"
-                    value={params.armCount}
-                    min={1}
-                    max={8}
-                    step={1}
-                    decimals={0}
-                    onChange={(v) => updateParam("armCount", v)}
-                  />
-                  <NumericField
-                    label="Arm twist"
-                    value={params.armTwist}
-                    min={0}
-                    max={12}
-                    step={0.1}
-                    decimals={1}
-                    onChange={(v) => updateParam("armTwist", v)}
-                  />
-                  <NumericField
-                    label="Arm spread"
-                    value={params.armSpread}
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    decimals={2}
-                    onChange={(v) => updateParam("armSpread", v)}
-                  />
-                  <NumericField
-                    label="Disk radius"
-                    value={params.diskRadius}
-                    min={5}
-                    max={120}
-                    step={0.5}
-                    decimals={1}
-                    onChange={(v) => updateParam("diskRadius", v)}
-                  />
-                  <NumericField
-                    label="Vertical thickness"
-                    value={params.verticalThickness}
-                    min={0}
-                    max={5}
-                    step={0.05}
-                    decimals={2}
-                    onChange={(v) => updateParam("verticalThickness", v)}
-                  />
-                </Section>
+                  <div className="preset-card-grid">
+                    {featuredPresets.map((card) => (
+                      <button
+                        key={card.title}
+                        className="preset-card"
+                        type="button"
+                        onClick={() => loadPreset(card.preset)}
+                      >
+                        <div className="preset-card-top">
+                          <div className="preset-tag">{card.tag}</div>
+                          <div className="preset-title">{card.title}</div>
+                          <div className="preset-blurb">{card.blurb}</div>
+                        </div>
+                        <div className="preset-chip">Load {card.preset}</div>
+                      </button>
+                    ))}
+                  </div>
 
-                <Section title="Noise & light">
-                  <NumericField
-                    label="Noise"
-                    value={params.noise}
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    decimals={2}
-                    onChange={(v) => updateParam("noise", v)}
-                  />
-                  <NumericField
-                    label="Core falloff"
-                    value={params.coreFalloff}
-                    min={0.1}
-                    max={6}
-                    step={0.1}
-                    decimals={2}
-                    onChange={(v) => updateParam("coreFalloff", v)}
-                  />
-                  <NumericField
-                    label="Brightness"
-                    value={params.brightness}
-                    min={0.1}
-                    max={2.5}
-                    step={0.05}
-                    decimals={2}
-                    onChange={(v) => updateParam("brightness", v)}
-                  />
-                </Section>
+                  <div className="play-controls">
+                    <PlaySlider
+                      label="Glow"
+                      description="Overall brightness and energy."
+                      value={params.brightness}
+                      min={0.5}
+                      max={2.5}
+                      step={0.05}
+                      onChange={(v) => updateParam("brightness", v)}
+                    />
+                    <PlaySlider
+                      label="Spiral twist"
+                      description="How tightly the arms wind."
+                      value={params.armTwist}
+                      min={0}
+                      max={12}
+                      step={0.1}
+                      onChange={(v) => updateParam("armTwist", v)}
+                    />
+                    <PlaySlider
+                      label="Arm spread"
+                      description="Make arms crisp or diffuse."
+                      value={params.armSpread}
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      onChange={(v) => updateParam("armSpread", v)}
+                    />
+                    <PlaySlider
+                      label="Star count"
+                      description="More stars = denser galaxy."
+                      value={params.starCount}
+                      min={1000}
+                      max={starCountMax}
+                      step={10000}
+                      onChange={(v) => updateParam("starCount", v)}
+                    />
+                    <PlaySlider
+                      label="Noise & dust"
+                      description="Add texture and randomness."
+                      value={params.noise}
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      onChange={(v) => updateParam("noise", v)}
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="scrub-hint">
+                    <span className="scrub-handle" aria-hidden="true">
+                      {"<>"}
+                    </span>
+                    <div className="scrub-text">
+                      Drag any label to scrub values. Hold Shift for 10x steps and Alt for 0.1x precision.
+                    </div>
+                  </div>
 
-                <Section title="Bulge">
-                  <NumericField
-                    label="Bulge radius"
-                    value={params.bulgeRadius}
-                    min={0.1}
-                    max={80}
-                    step={0.1}
-                    decimals={1}
-                    onChange={(v) => updateParam("bulgeRadius", v)}
-                  />
-                  <NumericField
-                    label="Bulge star count"
-                    value={params.bulgeStarCount}
-                    min={0}
-                    max={bulgeStarCountMax}
-                    step={1000}
-                    decimals={0}
-                    onChange={(v) => updateParam("bulgeStarCount", v)}
-                  />
-                  <NumericField
-                    label="Bulge falloff"
-                    value={params.bulgeFalloff}
-                    min={0.5}
-                    max={10}
-                    step={0.1}
-                    decimals={1}
-                    onChange={(v) => updateParam("bulgeFalloff", v)}
-                  />
-                  <NumericField
-                    label="Bulge vertical scale"
-                    value={params.bulgeVerticalScale}
-                    min={0.1}
-                    max={4}
-                    step={0.05}
-                    decimals={2}
-                    onChange={(v) => updateParam("bulgeVerticalScale", v)}
-                  />
-                  <NumericField
-                    label="Bulge brightness"
-                    value={params.bulgeBrightness}
-                    min={0.1}
-                    max={6}
-                    step={0.05}
-                    decimals={2}
-                    onChange={(v) => updateParam("bulgeBrightness", v)}
-                  />
-                </Section>
-              </div>
+                  <div className="controls-grid">
+                    <Section title="Galaxy disk">
+                      <NumericField
+                        label="Star count"
+                        value={params.starCount}
+                        min={1000}
+                        max={starCountMax}
+                        step={10_000}
+                        decimals={0}
+                        onChange={(v) => updateParam("starCount", v)}
+                      />
+                      <NumericField
+                        label="Arm count"
+                        value={params.armCount}
+                        min={1}
+                        max={8}
+                        step={1}
+                        decimals={0}
+                        onChange={(v) => updateParam("armCount", v)}
+                      />
+                      <NumericField
+                        label="Arm twist"
+                        value={params.armTwist}
+                        min={0}
+                        max={12}
+                        step={0.1}
+                        decimals={1}
+                        onChange={(v) => updateParam("armTwist", v)}
+                      />
+                      <NumericField
+                        label="Arm spread"
+                        value={params.armSpread}
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        decimals={2}
+                        onChange={(v) => updateParam("armSpread", v)}
+                      />
+                      <NumericField
+                        label="Disk radius"
+                        value={params.diskRadius}
+                        min={5}
+                        max={120}
+                        step={0.5}
+                        decimals={1}
+                        onChange={(v) => updateParam("diskRadius", v)}
+                      />
+                      <NumericField
+                        label="Vertical thickness"
+                        value={params.verticalThickness}
+                        min={0}
+                        max={5}
+                        step={0.05}
+                        decimals={2}
+                        onChange={(v) => updateParam("verticalThickness", v)}
+                      />
+                    </Section>
+
+                    <Section title="Noise & light">
+                      <NumericField
+                        label="Noise"
+                        value={params.noise}
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        decimals={2}
+                        onChange={(v) => updateParam("noise", v)}
+                      />
+                      <NumericField
+                        label="Core falloff"
+                        value={params.coreFalloff}
+                        min={0.1}
+                        max={6}
+                        step={0.1}
+                        decimals={2}
+                        onChange={(v) => updateParam("coreFalloff", v)}
+                      />
+                      <NumericField
+                        label="Brightness"
+                        value={params.brightness}
+                        min={0.1}
+                        max={2.5}
+                        step={0.05}
+                        decimals={2}
+                        onChange={(v) => updateParam("brightness", v)}
+                      />
+                    </Section>
+
+                    <Section title="Bulge">
+                      <NumericField
+                        label="Bulge radius"
+                        value={params.bulgeRadius}
+                        min={0.1}
+                        max={80}
+                        step={0.1}
+                        decimals={1}
+                        onChange={(v) => updateParam("bulgeRadius", v)}
+                      />
+                      <NumericField
+                        label="Bulge star count"
+                        value={params.bulgeStarCount}
+                        min={0}
+                        max={bulgeStarCountMax}
+                        step={1000}
+                        decimals={0}
+                        onChange={(v) => updateParam("bulgeStarCount", v)}
+                      />
+                      <NumericField
+                        label="Bulge falloff"
+                        value={params.bulgeFalloff}
+                        min={0.5}
+                        max={10}
+                        step={0.1}
+                        decimals={1}
+                        onChange={(v) => updateParam("bulgeFalloff", v)}
+                      />
+                      <NumericField
+                        label="Bulge vertical scale"
+                        value={params.bulgeVerticalScale}
+                        min={0.1}
+                        max={4}
+                        step={0.05}
+                        decimals={2}
+                        onChange={(v) => updateParam("bulgeVerticalScale", v)}
+                      />
+                      <NumericField
+                        label="Bulge brightness"
+                        value={params.bulgeBrightness}
+                        min={0.1}
+                        max={6}
+                        step={0.05}
+                        decimals={2}
+                        onChange={(v) => updateParam("bulgeBrightness", v)}
+                      />
+                    </Section>
+                  </div>
+                </>
+              )}
             </div>
           </section>
         )}
@@ -699,6 +892,45 @@ function applyMobileStarLimit(params: GalaxyParameters, isMobile: boolean): Gala
   }
 
   return { ...params, starCount: cappedStarCount, bulgeStarCount: cappedBulge };
+}
+
+function PlaySlider({
+  label,
+  description,
+  value,
+  min,
+  max,
+  step,
+  onChange
+}: {
+  label: string;
+  description: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (value: number) => void;
+}) {
+  const prettyValue = roundTo(value, step < 1 ? 2 : 0);
+  return (
+    <label className="play-slider">
+      <div className="play-slider-header">
+        <div>
+          <div className="play-slider-label">{label}</div>
+          <div className="play-slider-desc">{description}</div>
+        </div>
+        <div className="play-slider-value">{prettyValue.toLocaleString()}</div>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+      />
+    </label>
+  );
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
