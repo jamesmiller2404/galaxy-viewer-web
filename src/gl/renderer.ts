@@ -8,6 +8,9 @@ export class GalaxyRenderer {
   private program!: WebGLProgram;
   private vao!: WebGLVertexArrayObject;
   private vbo!: WebGLBuffer;
+  private useOrtho = false;
+  private mode: "single" | "multi" = "single";
+  private galaxyDraws: { vao: WebGLVertexArrayObject; vbo: WebGLBuffer; count: number; model: mat4 }[] = [];
   private paletteTex!: WebGLTexture;
   private uModel!: WebGLUniformLocation;
   private uView!: WebGLUniformLocation;
@@ -60,11 +63,55 @@ export class GalaxyRenderer {
   }
 
   setStars(buffer: StarBuffer) {
+    this.mode = "single";
+    this.disposeGalaxyDraws();
     this.starCount = buffer.count;
     const gl = this.gl;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
     gl.bufferData(gl.ARRAY_BUFFER, buffer.data, gl.DYNAMIC_DRAW);
     this.render();
+  }
+
+  updateStarBuffer(data: Float32Array) {
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, data);
+    this.render();
+  }
+
+  setGalaxies(
+    galaxies: Array<{ buffer: StarBuffer; model?: mat4 }>
+  ) {
+    const gl = this.gl;
+    this.mode = "multi";
+    this.disposeGalaxyDraws();
+
+    this.galaxyDraws = galaxies.map((entry) => {
+      const vbo = gl.createBuffer();
+      const vao = gl.createVertexArray();
+      if (!vbo || !vao) {
+        throw new Error("Failed to create buffers for galaxy");
+      }
+      gl.bindVertexArray(vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+      gl.bufferData(gl.ARRAY_BUFFER, entry.buffer.data, gl.DYNAMIC_DRAW);
+      const stride = 5 * 4;
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0);
+      gl.enableVertexAttribArray(1);
+      gl.vertexAttribPointer(1, 1, gl.FLOAT, false, stride, 3 * 4);
+      gl.enableVertexAttribArray(2);
+      gl.vertexAttribPointer(2, 1, gl.FLOAT, false, stride, 4 * 4);
+      gl.bindVertexArray(null);
+      return { vao, vbo, count: entry.buffer.count, model: entry.model ? mat4.clone(entry.model) : mat4.create() };
+    });
+    this.render();
+  }
+
+  updateGalaxyModel(index: number, model: mat4) {
+    const target = this.galaxyDraws[index];
+    if (!target) return;
+    target.model = mat4.clone(model);
   }
 
   resize() {
@@ -86,10 +133,8 @@ export class GalaxyRenderer {
 
     const aspect = this.canvas.width / Math.max(1, this.canvas.height);
     const view = this.camera.getViewMatrix();
-    const projection = this.camera.getProjectionMatrix(aspect);
+    const projection = this.useOrtho ? this.camera.getOrthoMatrix(aspect) : this.camera.getProjectionMatrix(aspect);
 
-    gl.uniformMatrix4fv(this.uModel, false, this.model);
-    gl.uniformMatrix4fv(this.uView, false, view);
     gl.uniformMatrix4fv(this.uProjection, false, projection);
     gl.uniform1f(this.uStarSizeScale, clamp(this.starSizeScale, 0, 1));
 
@@ -97,8 +142,26 @@ export class GalaxyRenderer {
     gl.bindTexture(gl.TEXTURE_2D, this.paletteTex);
     gl.uniform1i(this.uPalette, 0);
 
+    if (this.mode === "multi") {
+      this.renderMulti(view);
+      return;
+    }
+
+    gl.uniformMatrix4fv(this.uModel, false, this.model);
+    gl.uniformMatrix4fv(this.uView, false, view);
     gl.bindVertexArray(this.vao);
     gl.drawArrays(gl.POINTS, 0, this.starCount);
+    gl.bindVertexArray(null);
+  }
+
+  private renderMulti(view: mat4) {
+    const gl = this.gl;
+    gl.uniformMatrix4fv(this.uView, false, view);
+    for (const galaxy of this.galaxyDraws) {
+      gl.uniformMatrix4fv(this.uModel, false, galaxy.model);
+      gl.bindVertexArray(galaxy.vao);
+      gl.drawArrays(gl.POINTS, 0, galaxy.count);
+    }
     gl.bindVertexArray(null);
   }
 
@@ -126,8 +189,26 @@ export class GalaxyRenderer {
     this.render();
   }
 
+  setPlanarView(distance?: number) {
+    this.useOrtho = true;
+    this.camera.setPlanarView(distance);
+    this.render();
+  }
+
+  pan2D(deltaX: number, deltaY: number) {
+    if (!this.useOrtho) return;
+    this.camera.panOrtho(deltaX, deltaY, this.canvas.width, this.canvas.height);
+    this.render();
+  }
+
   setStarSizeScale(scale: number) {
     this.starSizeScale = clamp(scale, 0, 1);
+    this.render();
+  }
+
+
+  setOrthoMode(enabled: boolean) {
+    this.useOrtho = enabled;
     this.render();
   }
 
@@ -141,6 +222,16 @@ export class GalaxyRenderer {
     gl.deleteBuffer(this.vbo);
     gl.deleteVertexArray(this.vao);
     gl.deleteTexture(this.paletteTex);
+    this.disposeGalaxyDraws();
+  }
+
+  private disposeGalaxyDraws() {
+    const gl = this.gl;
+    this.galaxyDraws.forEach((g) => {
+      gl.deleteBuffer(g.vbo);
+      gl.deleteVertexArray(g.vao);
+    });
+    this.galaxyDraws = [];
   }
 
   private createProgram(vsSource: string, fsSource: string) {

@@ -3,6 +3,7 @@ import { mat4, quat, vec3 } from "gl-matrix";
 import { defaultParameters, GalaxyParameters } from "@domain/parameters";
 import { findPreset, presets } from "@domain/presets";
 import { GalaxyRenderer } from "@gl/renderer";
+import { CollisionLab } from "./CollisionLab";
 import "./styles.css";
 
 const nebulaThemeVars: Record<string, string> = {
@@ -95,6 +96,7 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false);
   const tiltOrigin = useRef<TiltReference | null>(null);
   const [controlMode, setControlMode] = useState<"explore" | "advanced">("explore");
+  const [viewMode, setViewMode] = useState<"single" | "collision">("single");
 
   const updateZoomDistance = React.useCallback(() => {
     const renderer = rendererRef.current;
@@ -470,6 +472,18 @@ export default function App() {
     }
   };
 
+  const enterCollisionMode = () => {
+    if (fullscreenMode) {
+      exitFullscreenMode();
+    }
+    setHelpOpen(false);
+    setViewMode("collision");
+  };
+
+  const exitCollisionMode = () => {
+    setViewMode("single");
+  };
+
   return (
     <div className={`page ${fullscreenMode ? "is-immersive" : ""}`}>
       {!fullscreenMode && (
@@ -477,9 +491,27 @@ export default function App() {
           <div className="title-text">
             <h1>Galaxy Forms Explorer</h1>
           </div>
+          <div className="title-actions">
+            <button
+              className={`btn ${viewMode === "single" ? "primary" : "secondary"}`}
+              type="button"
+              onClick={() => setViewMode("single")}
+            >
+              Explorer
+            </button>
+            <button
+              className={`btn ${viewMode === "collision" ? "primary" : "secondary"}`}
+              type="button"
+              onClick={enterCollisionMode}
+            >
+              Collision Lab
+            </button>
+          </div>
         </header>
       )}
 
+      {viewMode === "single" ? (
+        <>
       {!fullscreenMode && helpOpen && (
         <aside className="help-popover" id="help-popover" role="dialog" aria-label="How to use">
           <div className="help-popover-header">
@@ -880,6 +912,10 @@ export default function App() {
           </section>
         )}
       </div>
+        </>
+      ) : (
+        <CollisionLab currentParams={params} isMobile={isMobile} onExit={exitCollisionMode} />
+      )}
     </div>
   );
 }
