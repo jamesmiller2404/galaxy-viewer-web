@@ -604,7 +604,7 @@ h1 {
 .btn:hover { transform: translateY(-1px); }
 
 .btn.primary {
-  background: linear-gradient(120deg, rgba(255, 140, 90, 0.85), rgba(94, 234, 212, 0.75));
+  background: linear-gradient(120deg, rgba(139, 92, 246, 0.9), rgba(56, 189, 248, 0.82));
   border-color: rgba(255, 255, 255, 0.1);
   color: #0a0f1b;
   font-weight: 700;

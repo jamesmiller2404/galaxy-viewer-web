@@ -6,6 +6,7 @@ layout(location = 2) in float in_colorIndex;
 uniform mat4 uModel;
 uniform mat4 uView;
 uniform mat4 uProjection;
+uniform float uStarSizeScale;
 
 out float vIntensity;
 out float vColorIndex;
@@ -16,9 +17,12 @@ void main() {
   float dist = max(length(viewPos.xyz), 0.01);
   gl_Position = uProjection * viewPos;
   float brightness = clamp(in_intensity, 0.0, 4.0);
+  float sizeFactor = clamp(uStarSizeScale, 0.0, 1.0);
   float baseSize = mix(5.0, 24.0, clamp(brightness * 0.4, 0.0, 1.0));
   float size = baseSize / dist;
-  gl_PointSize = clamp(size, 2.0, 18.0);
+  float scaledSize = size * mix(0.05, 1.0, sizeFactor);
+  float minSize = mix(1.0, 2.0, sizeFactor);
+  gl_PointSize = clamp(scaledSize, minSize, 18.0);
   vIntensity = in_intensity;
   vColorIndex = clamp(in_colorIndex, 0.0, 1.0);
 }

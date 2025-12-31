@@ -13,7 +13,9 @@ export class GalaxyRenderer {
   private uView!: WebGLUniformLocation;
   private uProjection!: WebGLUniformLocation;
   private uPalette!: WebGLUniformLocation;
+  private uStarSizeScale!: WebGLUniformLocation;
   private starCount = 0;
+  private starSizeScale = 1;
   private camera = new Camera();
   private model = mat4.create();
 
@@ -30,6 +32,7 @@ export class GalaxyRenderer {
     this.uView = gl.getUniformLocation(this.program, "uView")!;
     this.uProjection = gl.getUniformLocation(this.program, "uProjection")!;
     this.uPalette = gl.getUniformLocation(this.program, "uPalette")!;
+    this.uStarSizeScale = gl.getUniformLocation(this.program, "uStarSizeScale")!;
 
     this.vao = gl.createVertexArray()!;
     this.vbo = gl.createBuffer()!;
@@ -88,6 +91,7 @@ export class GalaxyRenderer {
     gl.uniformMatrix4fv(this.uModel, false, this.model);
     gl.uniformMatrix4fv(this.uView, false, view);
     gl.uniformMatrix4fv(this.uProjection, false, projection);
+    gl.uniform1f(this.uStarSizeScale, clamp(this.starSizeScale, 0, 1));
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.paletteTex);
@@ -119,6 +123,11 @@ export class GalaxyRenderer {
 
   setAngles(yaw: number, pitch: number) {
     this.camera.setAngles(yaw, pitch);
+    this.render();
+  }
+
+  setStarSizeScale(scale: number) {
+    this.starSizeScale = clamp(scale, 0, 1);
     this.render();
   }
 

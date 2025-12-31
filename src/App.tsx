@@ -176,6 +176,13 @@ export default function App() {
   }, [rendererReady, fullscreenMode]);
 
   useEffect(() => {
+    if (!rendererReady) return;
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    renderer.setStarSizeScale(params.starSize);
+  }, [rendererReady, params.starSize]);
+
+  useEffect(() => {
     if (typeof document === "undefined") return;
     const handleFullscreenChange = () => {
       if (!document.fullscreenElement && fullscreenMode) {
@@ -433,8 +440,7 @@ export default function App() {
     if (!presets.length) return;
     const choice = presets[Math.floor(Math.random() * presets.length)];
     if (!choice) return;
-    setPresetName(choice.name);
-    setParams(applyMobileStarLimit({ ...choice.params }, isMobile));
+    loadPreset(choice.name);
   };
 
   const enterFullscreenMode = () => {
@@ -534,7 +540,7 @@ export default function App() {
                 </div>
               </div>
               <button className="fullscreen-btn" onClick={toggleFullscreenMode} type="button">
-                Full view
+                Full Screen
               </button>
             </div>
           )}
@@ -646,6 +652,15 @@ export default function App() {
                       max={2.5}
                       step={0.05}
                       onChange={(v) => updateParam("brightness", v)}
+                    />
+                    <PlaySlider
+                      label="Star size"
+                      description="Shrink stars down to sharp points."
+                      value={params.starSize}
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      onChange={(v) => updateParam("starSize", v)}
                     />
                     <PlaySlider
                       label="Spiral arms"
@@ -799,6 +814,15 @@ export default function App() {
                         step={0.05}
                         decimals={2}
                         onChange={(v) => updateParam("brightness", v)}
+                      />
+                      <NumericField
+                        label="Star size"
+                        value={params.starSize}
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        decimals={2}
+                        onChange={(v) => updateParam("starSize", v)}
                       />
                     </Section>
 

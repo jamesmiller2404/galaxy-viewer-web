@@ -2,7 +2,7 @@ import { GalaxyParameters, defaultParameters } from "./parameters";
 
 export interface Preset {
   name: string;
-  params: GalaxyParameters;
+  params: Partial<GalaxyParameters>;
 }
 
 export const presets: Preset[] = [
@@ -660,5 +660,5 @@ export const presets: Preset[] = [
 
 export function findPreset(name: string): GalaxyParameters | null {
   const preset = presets.find((p) => p.name === name);
-  return preset ? { ...preset.params } : null;
+  return preset ? { ...defaultParameters, ...preset.params } : null;
 }
