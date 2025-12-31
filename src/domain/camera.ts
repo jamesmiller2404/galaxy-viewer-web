@@ -3,7 +3,7 @@ import { mat4, vec3 } from "gl-matrix";
 export class Camera {
   yaw = 0.9;
   pitch = -0.55;
-  distance = 180;
+  distance = 90;
   target: vec3 = vec3.fromValues(0, 0, 0);
 
   rotate(deltaYaw: number, deltaPitch: number) {
@@ -12,7 +12,15 @@ export class Camera {
   }
 
   zoom(delta: number) {
-    this.distance = clamp(this.distance + delta, 10, 400);
+    this.setDistance(this.distance + delta);
+  }
+
+  setDistance(distance: number) {
+    this.distance = clamp(distance, 10, 400);
+  }
+
+  getDistance() {
+    return this.distance;
   }
 
   getViewMatrix(): mat4 {

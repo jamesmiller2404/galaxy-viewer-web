@@ -108,6 +108,15 @@ export class GalaxyRenderer {
     this.render();
   }
 
+  setZoomDistance(distance: number) {
+    this.camera.setDistance(distance);
+    this.render();
+  }
+
+  getZoomDistance() {
+    return this.camera.getDistance();
+  }
+
   setAngles(yaw: number, pitch: number) {
     this.camera.setAngles(yaw, pitch);
     this.render();

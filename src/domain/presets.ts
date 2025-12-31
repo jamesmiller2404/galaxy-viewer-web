@@ -44,7 +44,7 @@ export const presets: Preset[] = [
       bulgeRadius: 9,
       bulgeStarCount: 35000,
       bulgeFalloff: 2.1,
-      bulgeVerticalScale: 0.8,
+      bulgeVerticalScale: 3.8,
       bulgeBrightness: 2.8,
     }
   },
@@ -63,7 +63,7 @@ export const presets: Preset[] = [
       bulgeRadius: 8.5,
       bulgeStarCount: 32000,
       bulgeFalloff: 2.4,
-      bulgeVerticalScale: 0.9,
+      bulgeVerticalScale: 2.9,
       bulgeBrightness: 2.8,
     }
   },

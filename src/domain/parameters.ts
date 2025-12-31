@@ -28,7 +28,7 @@ export const defaultParameters: GalaxyParameters = {
   bulgeRadius: 9.0,
   bulgeStarCount: 50000,
   bulgeFalloff: 2.3,
-  bulgeVerticalScale: 0.7,
+  bulgeVerticalScale: 3.0,
   bulgeBrightness: 3.4
 };
 

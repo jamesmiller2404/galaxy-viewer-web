@@ -31,6 +31,9 @@ type TiltReference = {
 
 const DEFAULT_PRESET_NAME = "Andromeda (M31)";
 const TILT_RESPONSE_GAIN = 1.5;
+const ZOOM_MIN = 10;
+const ZOOM_MAX = 400;
+const DEFAULT_ZOOM_DISTANCE = 90;
 
 type FeaturedPresetCard = {
   title: string;
@@ -53,10 +56,16 @@ const featuredPresets: FeaturedPresetCard[] = [
     blurb: "Packed light pouring from the center with busy arms."
   },
   {
-    title: "Cloudy Whirlpool",
-    preset: "Flocculent Spiral",
-    tag: "Soft arms",
-    blurb: "Feathery, cloudlike arms that feel more organic."
+    title: "Spiral (Sa)",
+    preset: "Spiral (Sa)",
+    tag: "Classic early spiral",
+    blurb: "Prominent central bulge and smooth, tightly wrapped arms."
+  },
+  {
+    title: "Lenticular Lens",
+    preset: "Lenticular (S0)",
+    tag: "Bulge + faint disk",
+    blurb: "Smooth lens-shaped disk with weak or missing arms."
   }
 ];
 
@@ -77,6 +86,7 @@ export default function App() {
   const [, setStatus] = useState("Ready");
   const [generating, setGenerating] = useState(false);
   const [rendererReady, setRendererReady] = useState(false);
+  const [zoomDistance, setZoomDistance] = useState<number>(DEFAULT_ZOOM_DISTANCE);
   const [fullscreenMode, setFullscreenMode] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [tiltSupported, setTiltSupported] = useState(false);
@@ -85,6 +95,32 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false);
   const tiltOrigin = useRef<TiltReference | null>(null);
   const [controlMode, setControlMode] = useState<"explore" | "advanced">("explore");
+
+  const updateZoomDistance = React.useCallback(() => {
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    setZoomDistance(renderer.getZoomDistance());
+  }, []);
+
+  const applyZoomDelta = React.useCallback(
+    (delta: number) => {
+      const renderer = rendererRef.current;
+      if (!renderer) return;
+      renderer.zoom(delta);
+      updateZoomDistance();
+    },
+    [updateZoomDistance]
+  );
+
+  const handleZoomSlider = React.useCallback(
+    (distance: number) => {
+      const renderer = rendererRef.current;
+      if (!renderer) return;
+      renderer.setZoomDistance(distance);
+      updateZoomDistance();
+    },
+    [updateZoomDistance]
+  );
 
   // Apply theme tokens to CSS variables
   useEffect(() => {
@@ -112,6 +148,7 @@ export default function App() {
       renderer.init();
       renderer.resize();
       setRendererReady(true);
+      updateZoomDistance();
     } catch (error) {
       console.error(error);
       setStatus("Failed to init WebGL");
@@ -125,7 +162,7 @@ export default function App() {
       window.removeEventListener("resize", onResize);
       renderer.dispose();
     };
-  }, []);
+  }, [updateZoomDistance]);
 
   useEffect(() => {
     if (!rendererReady) return;
@@ -202,7 +239,7 @@ export default function App() {
         const dist = currentPinchDistance();
         if (lastPinchDistance !== null && dist > 0) {
           const delta = lastPinchDistance - dist;
-          renderer.zoom(delta * pinchScale);
+          applyZoomDelta(delta * pinchScale);
         }
         lastPinchDistance = dist;
         return;
@@ -236,7 +273,7 @@ export default function App() {
     };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      renderer.zoom(-e.deltaY * 0.05);
+      applyZoomDelta(-e.deltaY * 0.05);
     };
     canvas.addEventListener("pointerdown", onDown);
     canvas.addEventListener("pointermove", onMove);
@@ -250,7 +287,7 @@ export default function App() {
       canvas.removeEventListener("pointercancel", onUp);
       canvas.removeEventListener("wheel", onWheel);
     };
-  }, [rendererReady, tiltEnabled]);
+  }, [rendererReady, tiltEnabled, applyZoomDelta]);
 
   // Worker setup
   useEffect(() => {
@@ -400,10 +437,6 @@ export default function App() {
     setParams(applyMobileStarLimit({ ...choice.params }, isMobile));
   };
 
-  const handleZoom = (delta: number) => {
-    rendererRef.current?.zoom(delta);
-  };
-
   const enterFullscreenMode = () => {
     setFullscreenMode(true);
     const shell = viewportShellRef.current;
@@ -451,7 +484,7 @@ export default function App() {
           </div>
           <ul className="help-list">
             <li>Start with a preset card or hit Random Galaxy - it loads and regenerates instantly.</li>
-            <li>Step 1: Drag to orbit. Step 2: Pinch or tap + / - to zoom. Step 3: Switch a preset.</li>
+            <li>Step 1: Drag to orbit. Step 2: Pinch or drag the zoom slider. Step 3: Switch a preset.</li>
             <li>Explore mode sliders are friendly; Advanced keeps the detailed knobs and scrubbable labels.</li>
             <li>Full view toggles fullscreen; on mobile, tilt can steer if available.</li>
           </ul>
@@ -478,12 +511,27 @@ export default function App() {
           {!fullscreenMode && (
             <div className="viewport-toolbar">
               <div className="zoom-controls" aria-label="Zoom controls">
-                <button className="zoom-btn" onClick={() => handleZoom(-8)} aria-label="Zoom in">
-                  +
-                </button>
-                <button className="zoom-btn" onClick={() => handleZoom(8)} aria-label="Zoom out">
-                  -
-                </button>
+                <div className="zoom-row">
+                  <div className="zoom-label">Zoom</div>
+                  <div className="zoom-value">{Math.round(zoomDistance)}</div>
+                </div>
+                <input
+                  className="zoom-slider"
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={distanceToSlider(zoomDistance)}
+                  onChange={(e) => handleZoomSlider(sliderToDistance(parseFloat(e.target.value)))}
+                  aria-valuemin={ZOOM_MIN}
+                  aria-valuemax={ZOOM_MAX}
+                  aria-valuenow={Math.round(zoomDistance)}
+                  aria-label="Zoom level"
+                />
+                <div className="zoom-legend" aria-hidden="true">
+                  <span>Wide</span>
+                  <span>Close</span>
+                </div>
               </div>
               <button className="fullscreen-btn" onClick={toggleFullscreenMode} type="button">
                 Full view
@@ -506,7 +554,7 @@ export default function App() {
             )}
             {!fullscreenMode && (
               <div className="hint">
-                Drag to orbit | Pinch or use + / - to zoom
+                Drag to orbit | Pinch or use the zoom slider
                 {tiltSupported ? " | Tilt to steer on mobile" : ""}
               </div>
             )}
@@ -1029,6 +1077,18 @@ function NumericField({
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function distanceToSlider(distance: number) {
+  const span = ZOOM_MAX - ZOOM_MIN;
+  const clamped = clampNumber(distance, ZOOM_MIN, ZOOM_MAX);
+  return span ? ((ZOOM_MAX - clamped) / span) * 100 : 0;
+}
+
+function sliderToDistance(value: number) {
+  const span = ZOOM_MAX - ZOOM_MIN;
+  const clamped = clampNumber(value, 0, 100);
+  return ZOOM_MAX - (clamped / 100) * span;
 }
 
 function buildDeviceRotationMatrix(alpha: number, beta: number, gamma: number, screenAngle: number) {
