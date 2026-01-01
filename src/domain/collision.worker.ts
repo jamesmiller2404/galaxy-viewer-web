@@ -19,9 +19,8 @@ type InitPayload = {
 };
 
 type GalaxyInit = {
-  count: number;
+  params: GalaxyParameters;
   mass: number;
-  diskScale: number;
   center: [number, number];
   velocity: [number, number];
   seed: number;
@@ -98,8 +97,8 @@ function init(payload: InitPayload) {
   softening = payload.softening;
   gConst = payload.gConst;
   const [gA, gB] = payload.galaxies;
-  countA = Math.max(0, gA.count);
-  countB = Math.max(0, gB.count);
+  countA = Math.max(0, Math.floor(gA.params.starCount + gA.params.bulgeStarCount));
+  countB = Math.max(0, Math.floor(gB.params.starCount + gB.params.bulgeStarCount));
   const total = countA + countB;
   const bufferCtor = useSharedBuffer ? SharedArrayBuffer : ArrayBuffer;
   positionsBuffer = new bufferCtor(total * 2 * 4);
@@ -123,33 +122,76 @@ function init(payload: InitPayload) {
     mass: gB.mass
   };
 
-  seedDisk(gA, 0);
-  seedDisk(gB, countA);
+  seedGalaxy(gA, 0);
+  seedGalaxy(gB, countA);
 
   ctx.postMessage({ type: "ready", count: total } satisfies Outbound);
   // Send first frame so the main thread can initialize buffers.
   postFrame();
 }
 
-function seedDisk(galaxy: GalaxyInit, offset: number) {
+function seedGalaxy(galaxy: GalaxyInit, offset: number) {
   if (!positions || !velocities) return;
   const rand = mulberry32(galaxy.seed || 1 + offset * 17);
-  for (let i = 0; i < galaxy.count; i++) {
+  const gaussian = makeGaussian(rand);
+  const params = galaxy.params;
+  const diskRadius = Math.max(1, params.diskRadius);
+  const diskEdge = diskRadius * 0.98;
+  const armCount = Math.max(1, Math.floor(params.armCount));
+  const starCount = Math.max(0, Math.floor(params.starCount));
+  const bulgeCount = Math.max(0, Math.floor(params.bulgeStarCount));
+
+  // Disk with arms
+  for (let i = 0; i < starCount; i++) {
     const idx = offset + i;
-    const angle = rand() * Math.PI * 2;
-    const u = Math.max(1e-4, rand());
-    const r = -galaxy.diskScale * Math.log(1 - u); // exponential radius
-    const x = r * Math.cos(angle);
-    const y = r * Math.sin(angle);
+    const armIndex = Math.floor(rand() * armCount);
+    const baseRadius = diskRadius * Math.pow(rand(), 1.6);
+    const armAngle = (armIndex * Math.PI * 2) / armCount;
+    const twist = params.armTwist * (baseRadius / diskRadius);
+    const angleNoise = gaussian() * params.armSpread;
+    const angle = armAngle + twist + angleNoise;
+    const radialNoise = gaussian() * params.noise * diskRadius * 0.25;
+    const radius = clamp(baseRadius + radialNoise, 0.05, diskEdge);
+    const x = radius * Math.cos(angle);
+    const y = radius * Math.sin(angle);
+
     positions[idx * 2] = galaxy.center[0] + x;
     positions[idx * 2 + 1] = galaxy.center[1] + y;
 
     // Circular velocity from self potential
-    const accelMag = radialAccel(r, galaxy.mass);
-    const vCirc = Math.sqrt(Math.max(0, r * accelMag));
+    const accelMag = radialAccel(radius, galaxy.mass);
+    const vCirc = Math.sqrt(Math.max(0, radius * accelMag));
     const jitter = 0.05 * vCirc;
     const vx = -Math.sin(angle) * (vCirc + jitter * (rand() - 0.5));
     const vy = Math.cos(angle) * (vCirc + jitter * (rand() - 0.5));
+    velocities[idx * 2] = galaxy.velocity[0] + vx;
+    velocities[idx * 2 + 1] = galaxy.velocity[1] + vy;
+  }
+
+  // Bulge
+  const bulgeOffset = offset + starCount;
+  const bulgeRadius = Math.max(0.1, params.bulgeRadius);
+  const rMin = 0.1;
+  const invRMin = 1 / rMin;
+  const invRMax = 1 / bulgeRadius;
+  const invRange = invRMin - invRMax;
+
+  for (let i = 0; i < bulgeCount; i++) {
+    const idx = bulgeOffset + i;
+    const u = rand();
+    const invR = invRMin - u * invRange;
+    const radius = clamp(1 / invR, rMin, bulgeRadius);
+    const angle = rand() * Math.PI * 2;
+    const x = radius * Math.cos(angle);
+    const y = radius * Math.sin(angle);
+
+    positions[idx * 2] = galaxy.center[0] + x;
+    positions[idx * 2 + 1] = galaxy.center[1] + y;
+
+    const accelMag = radialAccel(radius, galaxy.mass);
+    const vCirc = 0.25 * Math.sqrt(Math.max(0, radius * accelMag));
+    const vx = -Math.sin(angle) * vCirc;
+    const vy = Math.cos(angle) * vCirc;
     velocities[idx * 2] = galaxy.velocity[0] + vx;
     velocities[idx * 2 + 1] = galaxy.velocity[1] + vy;
   }
@@ -270,6 +312,18 @@ function radialAccel(r: number, mass: number) {
   const denom = Math.pow(r * r + softening * softening, 1.5);
   if (!denom) return 0;
   return (gConst * mass * r) / denom;
+}
+
+function makeGaussian(rand: () => number) {
+  return () => {
+    const u1 = Math.max(1e-7, 1 - rand());
+    const u2 = 1 - rand();
+    return Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+  };
+}
+
+function clamp(v: number, min: number, max: number) {
+  return Math.min(Math.max(v, min), max);
 }
 
 function mulberry32(seed: number) {

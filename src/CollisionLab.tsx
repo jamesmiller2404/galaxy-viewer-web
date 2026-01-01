@@ -222,6 +222,22 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, [updateZoomDistance]);
 
+  useEffect(() => {
+    if (!rendererReady) return;
+    if (typeof ResizeObserver === "undefined") return;
+    const shell = shellRef.current;
+    if (!shell) return;
+    const observer = new ResizeObserver(() => {
+      const renderer = rendererRef.current;
+      if (!renderer) return;
+      renderer.resize();
+      renderer.render();
+      updateZoomDistance();
+    });
+    observer.observe(shell);
+    return () => observer.disconnect();
+  }, [rendererReady, updateZoomDistance]);
+
   // Pointer controls (pan + zoom)
   useEffect(() => {
     if (!rendererReady) return;
@@ -397,12 +413,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     if (!workerRef.current) return;
     setLoading(true);
     setStatus("Generating galaxies...");
-    const cap = STAR_CAP_PER_GALAXY;
-    const aParams = galaxyA.params;
-    const bParams = galaxyB.params;
-    const capped = clampCollisionStars(aParams, bParams, cap);
-    const countA = capped.a.starCount + capped.a.bulgeStarCount;
-    const countB = capped.b.starCount + capped.b.bulgeStarCount;
+    const capped = clampCollisionStars(galaxyA.params, galaxyB.params, STAR_CAP_PER_GALAXY);
 
     const separation = 40;
     const offset = impactOffset * 0.5;
@@ -415,17 +426,15 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
       gConst: DEFAULT_G,
       galaxies: [
         {
-          count: countA,
+          params: capped.a,
           mass: effectiveMass(capped.a, galaxyA.massScale),
-          diskScale: Math.max(6, capped.a.diskRadius * 0.3),
           center: [-separation, offset],
           velocity: [0, relativeSpeed],
           seed: 1337
         },
         {
-          count: countB,
+          params: capped.b,
           mass: effectiveMass(capped.b, galaxyB.massScale),
-          diskScale: Math.max(6, capped.b.diskRadius * 0.3),
           center: [separation, -offset],
           velocity: [0, -relativeSpeed],
           seed: 4242
