@@ -5,6 +5,7 @@ type Inbound =
   | { type: "init"; payload: InitPayload }
   | { type: "start" }
   | { type: "pause" }
+  | { type: "setTimeScale"; value: number }
   | { type: "reset" }
   | { type: "terminate" };
 
@@ -71,6 +72,9 @@ ctx.onmessage = (event: MessageEvent<Inbound>) => {
         break;
       case "reset":
         reset();
+        break;
+      case "setTimeScale":
+        updateTimeScale(msg.value);
         break;
       case "terminate":
         stop();
@@ -222,6 +226,10 @@ function stepFrame() {
     accumStepMs = 0;
   }
   postFrame();
+}
+
+function updateTimeScale(value: number) {
+  timeScale = Math.max(0.05, value);
 }
 
 function postFrame() {

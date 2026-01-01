@@ -57,7 +57,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
   const [running, setRunning] = useState(false);
   const [impactOffset, setImpactOffset] = useState(12);
   const [relativeSpeed, setRelativeSpeed] = useState(1.5);
-  const [timeScale, setTimeScale] = useState(1);
+  const [timeScale, setTimeScale] = useState(2);
   const [status, setStatus] = useState("Select presets and start the collision");
   const [starSize, setStarSize] = useState(0.35);
   const [zoomDistance, setZoomDistance] = useState(DEFAULT_ZOOM_DISTANCE);
@@ -441,7 +441,13 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     setLoading(false);
     setStatus("Running collision sim...");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [galaxyA, galaxyB, impactOffset, relativeSpeed, isMobile, timeScale]);
+  }, [galaxyA, galaxyB, impactOffset, relativeSpeed, isMobile]);
+
+  // Adjust time scale without re-seeding galaxies.
+  useEffect(() => {
+    if (!workerRef.current) return;
+    workerRef.current.postMessage({ type: "setTimeScale", value: timeScale });
+  }, [timeScale]);
 
   useEffect(
     () => () => {
