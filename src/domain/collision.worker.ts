@@ -13,6 +13,7 @@ type InitPayload = {
   substeps: number;
   softening: number;
   gConst: number;
+  timeScale: number;
   galaxies: [GalaxyInit, GalaxyInit];
 };
 
@@ -44,6 +45,7 @@ let countA = 0;
 let countB = 0;
 let running = false;
 let dt = 1 / 60;
+let timeScale = 1;
 let substeps = 1;
 let gConst = 1;
 let softening = 1;
@@ -87,6 +89,7 @@ ctx.onmessage = (event: MessageEvent<Inbound>) => {
 
 function init(payload: InitPayload) {
   dt = payload.dt;
+  timeScale = Math.max(0.05, payload.timeScale || 1);
   substeps = Math.max(1, Math.floor(payload.substeps));
   softening = payload.softening;
   gConst = payload.gConst;
@@ -174,7 +177,7 @@ function reset() {
 function stepFrame() {
   if (!positions || !velocities || !running) return;
   const frameStart = performance.now();
-  const subDt = dt / substeps;
+  const subDt = (dt * timeScale) / substeps;
   for (let s = 0; s < substeps; s++) {
     // Center-center interaction
     const dirCX = c2.x - c1.x;

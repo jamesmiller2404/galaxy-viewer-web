@@ -408,7 +408,8 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     const offset = impactOffset * 0.5;
 
     const payload = {
-      dt: DEFAULT_DT * timeScale,
+      dt: DEFAULT_DT,
+      timeScale,
       substeps: DEFAULT_SUBSTEPS,
       softening: DEFAULT_SOFTENING,
       gConst: DEFAULT_G,
