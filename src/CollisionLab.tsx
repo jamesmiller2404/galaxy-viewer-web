@@ -522,7 +522,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
   };
 
   return (
-    <div className="layout">
+    <div className="layout collision-layout">
       <section className="panel viewport-panel">
         <div className="panel-heading-row">
           <div className="panel-heading">Collision viewport</div>

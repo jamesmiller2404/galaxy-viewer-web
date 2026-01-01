@@ -311,6 +311,15 @@ h1 {
   padding-bottom: 6px;
 }
 
+.collision-layout .controls-panel {
+  max-height: none;
+}
+
+.collision-layout .controls-scroll {
+  overflow: visible;
+  max-height: none;
+}
+
 .panel-heading {
   font-weight: 700;
   margin-bottom: 12px;
