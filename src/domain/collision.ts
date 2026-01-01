@@ -41,25 +41,29 @@ export function scaleGalaxy(params: GalaxyParameters, scale: number): GalaxyPara
   };
 }
 
+export function capGalaxyStars(params: GalaxyParameters, capPerGalaxy: number): GalaxyParameters {
+  const total = params.starCount + params.bulgeStarCount;
+  if (total <= capPerGalaxy) return params;
+  const ratio = capPerGalaxy / Math.max(1, total);
+  return {
+    ...params,
+    starCount: Math.max(500, Math.floor(params.starCount * ratio)),
+    bulgeStarCount: Math.max(0, Math.floor(params.bulgeStarCount * ratio))
+  };
+}
+
 export function clampCollisionStars(
   a: GalaxyParameters,
   b: GalaxyParameters,
-  cap: number
+  capPerGalaxy: number
 ): { a: GalaxyParameters; b: GalaxyParameters } {
-  const total = a.starCount + a.bulgeStarCount + b.starCount + b.bulgeStarCount;
-  if (total <= cap) return { a, b };
-  const ratio = cap / Math.max(1, total);
-  const scaleParams = (p: GalaxyParameters) => ({
-    ...p,
-    starCount: Math.max(500, Math.floor(p.starCount * ratio)),
-    bulgeStarCount: Math.max(0, Math.floor(p.bulgeStarCount * ratio))
-  });
-  return { a: scaleParams(a), b: scaleParams(b) };
+  return { a: capGalaxyStars(a, capPerGalaxy), b: capGalaxyStars(b, capPerGalaxy) };
 }
 
 export function defaultCollisionSetup(): CollisionSetup {
-  const andromeda = resolvePreset("Andromeda (M31)");
-  const spiral = resolvePreset("Spiral (Sa)");
+  const cap = 50_000;
+  const andromeda = capGalaxyStars(resolvePreset("Andromeda (M31)"), cap);
+  const spiral = capGalaxyStars(resolvePreset("Spiral (Sa)"), cap);
   return {
     galaxyA: makeGalaxyInstance("Andromeda (M31)", andromeda, { color: "#ff9f6d", massScale: 1 }),
     galaxyB: makeGalaxyInstance("Spiral (Sa)", spiral, { color: "#7bd8ff", massScale: 1 }),

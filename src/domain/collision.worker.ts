@@ -26,13 +26,19 @@ type GalaxyInit = {
 };
 
 type Outbound =
-  | { type: "frame"; positions: ArrayBuffer; countA: number; countB: number }
+  | { type: "frame"; positions: ArrayBufferLike; countA: number; countB: number; shared: boolean }
+  | { type: "stats"; stepMs: number; simFps: number }
   | { type: "ready"; count: number }
   | { type: "error"; message: string };
 
 const ctx: DedicatedWorkerGlobalScope = self as unknown as DedicatedWorkerGlobalScope;
 
+const useSharedBuffer =
+  typeof SharedArrayBuffer !== "undefined" &&
+  (self as unknown as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
+
 let positions: Float32Array | null = null;
+let positionsBuffer: ArrayBufferLike | null = null;
 let velocities: Float32Array | null = null;
 let countA = 0;
 let countB = 0;
@@ -44,6 +50,9 @@ let softening = 1;
 let c1 = { x: 0, y: 0, vx: 0, vy: 0, mass: 1 };
 let c2 = { x: 0, y: 0, vx: 0, vy: 0, mass: 1 };
 let timer: number | null = null;
+let timerIntervalMs = 16;
+let accumStepMs = 0;
+let accumSteps = 0;
 
 ctx.onmessage = (event: MessageEvent<Inbound>) => {
   const msg = event.data;
@@ -85,8 +94,12 @@ function init(payload: InitPayload) {
   countA = Math.max(0, gA.count);
   countB = Math.max(0, gB.count);
   const total = countA + countB;
-  positions = new Float32Array(total * 2);
+  const bufferCtor = useSharedBuffer ? SharedArrayBuffer : ArrayBuffer;
+  positionsBuffer = new bufferCtor(total * 2 * 4);
+  positions = new Float32Array(positionsBuffer);
   velocities = new Float32Array(total * 2);
+  accumStepMs = 0;
+  accumSteps = 0;
 
   c1 = {
     x: gA.center[0],
@@ -138,7 +151,8 @@ function seedDisk(galaxy: GalaxyInit, offset: number) {
 function start() {
   if (timer !== null) return;
   running = true;
-  timer = setInterval(stepFrame, Math.max(5, (dt * 1000) / substeps)) as unknown as number;
+  timerIntervalMs = Math.max(16, (dt * 1000) / substeps);
+  timer = setInterval(stepFrame, timerIntervalMs) as unknown as number;
 }
 
 function stop() {
@@ -159,6 +173,7 @@ function reset() {
 
 function stepFrame() {
   if (!positions || !velocities || !running) return;
+  const frameStart = performance.now();
   const subDt = dt / substeps;
   for (let s = 0; s < substeps; s++) {
     // Center-center interaction
@@ -193,14 +208,29 @@ function stepFrame() {
     }
   }
 
+  const stepDuration = performance.now() - frameStart;
+  accumStepMs += stepDuration;
+  accumSteps++;
+  if (accumSteps >= 30) {
+    const avg = accumStepMs / accumSteps;
+    const simFps = 1000 / Math.max(1, timerIntervalMs);
+    ctx.postMessage({ type: "stats", stepMs: avg, simFps } satisfies Outbound);
+    accumSteps = 0;
+    accumStepMs = 0;
+  }
   postFrame();
 }
 
 function postFrame() {
-  if (!positions) return;
-  ctx.postMessage(
-    { type: "frame", positions: positions.buffer.slice(0), countA, countB } satisfies Outbound
-  );
+  if (!positions || !positionsBuffer) return;
+  const shared = useSharedBuffer;
+  if (shared) {
+    ctx.postMessage({ type: "frame", positions: positionsBuffer, countA, countB, shared } satisfies Outbound);
+    return;
+  }
+  // In non-shared mode, clone so the worker keeps ownership for the next frame.
+  const clone = (positionsBuffer as ArrayBuffer).slice(0);
+  ctx.postMessage({ type: "frame", positions: clone, countA, countB, shared } satisfies Outbound);
 }
 
 function totalAccel(x: number, y: number) {

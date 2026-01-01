@@ -1,15 +1,23 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GalaxyRenderer } from "@gl/renderer";
 import { GalaxyParameters } from "@domain/parameters";
 import { findPreset, presets } from "@domain/presets";
-import { clampCollisionStars, makeGalaxyInstance, resolvePreset, scaleGalaxy } from "@domain/collision";
+import {
+  capGalaxyStars,
+  clampCollisionStars,
+  makeGalaxyInstance,
+  resolvePreset,
+  scaleGalaxy
+} from "@domain/collision";
 
-const MOBILE_STAR_CAP = 15_000;
-const DESKTOP_STAR_CAP = 30_000;
+const STAR_CAP_PER_GALAXY = 30_000;
 const DEFAULT_DT = 1 / 60;
-const DEFAULT_SUBSTEPS = 2;
+const DEFAULT_SUBSTEPS = 1;
 const DEFAULT_SOFTENING = 3.0;
 const DEFAULT_G = 24.0;
+const ZOOM_MIN = 10;
+const ZOOM_MAX = 400;
+const DEFAULT_ZOOM_DISTANCE = 90;
 
 type GalaxySelection = {
   name: string;
@@ -26,15 +34,24 @@ type Props = {
 
 type WorkerMessage =
   | { type: "ready"; count: number }
-  | { type: "frame"; positions: ArrayBuffer; countA: number; countB: number }
+  | { type: "frame"; positions: ArrayBufferLike; countA: number; countB: number; shared: boolean }
+  | { type: "stats"; stepMs: number; simFps: number }
   | { type: "error"; message: string };
+
+const capForCollision = (params: GalaxyParameters) => capGalaxyStars(params, STAR_CAP_PER_GALAXY);
 
 export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const shellRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<GalaxyRenderer | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const baseBufferRef = useRef<Float32Array | null>(null);
   const starCountRef = useRef(0);
+  const latestFrameRef = useRef<
+    { positions: ArrayBufferLike; countA: number; countB: number; shared: boolean } | null
+  >(null);
+  const framePendingRef = useRef(false);
+  const rafIdRef = useRef<number | null>(null);
   const [rendererReady, setRendererReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
@@ -43,16 +60,19 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
   const [timeScale, setTimeScale] = useState(1);
   const [status, setStatus] = useState("Select presets and start the collision");
   const [starSize, setStarSize] = useState(0.35);
+  const [zoomDistance, setZoomDistance] = useState(DEFAULT_ZOOM_DISTANCE);
+  const [fullscreenMode, setFullscreenMode] = useState(false);
+  const [perfStats, setPerfStats] = useState({ renderFps: 0, uploadMs: 0, simFps: 0, simStepMs: 0 });
 
   const [galaxyA, setGalaxyA] = useState<GalaxySelection>(() => {
-    const base = makeGalaxyInstance("Andromeda (M31)", resolvePreset("Andromeda (M31)"), {
+    const base = makeGalaxyInstance("Andromeda (M31)", capForCollision(resolvePreset("Andromeda (M31)")), {
       color: "#ff9f6d",
       massScale: 1
     });
     return { ...base };
   });
   const [galaxyB, setGalaxyB] = useState<GalaxySelection>(() => {
-    const base = makeGalaxyInstance("Spiral (Sa)", resolvePreset("Spiral (Sa)"), {
+    const base = makeGalaxyInstance("Spiral (Sa)", capForCollision(resolvePreset("Spiral (Sa)")), {
       color: "#7bd8ff",
       massScale: 1
     });
@@ -66,6 +86,63 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     return a.starCount + a.bulgeStarCount + b.starCount + b.bulgeStarCount;
   }, [galaxyA.params, galaxyB.params]);
 
+  const updateZoomDistance = useCallback(() => {
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    setZoomDistance(renderer.getZoomDistance());
+  }, []);
+
+  const applyZoomDelta = useCallback(
+    (delta: number) => {
+      const renderer = rendererRef.current;
+      if (!renderer) return;
+      renderer.zoom(delta);
+      updateZoomDistance();
+    },
+    [updateZoomDistance]
+  );
+
+  const handleZoomSlider = useCallback(
+    (distance: number) => {
+      const renderer = rendererRef.current;
+      if (!renderer) return;
+      renderer.setZoomDistance(distance);
+      updateZoomDistance();
+    },
+    [updateZoomDistance]
+  );
+
+  const enterFullscreen = useCallback(() => {
+    const shell = shellRef.current;
+    if (!shell?.requestFullscreen) return;
+    setFullscreenMode(true);
+    shell.requestFullscreen().catch(() => setFullscreenMode(false));
+  }, []);
+
+  const exitFullscreen = useCallback(() => {
+    setFullscreenMode(false);
+    if (typeof document === "undefined") return;
+    if (!document.fullscreenElement) return;
+    document.exitFullscreen?.().catch(() => {
+      /* ignore fullscreen exit errors */
+    });
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    if (fullscreenMode) {
+      exitFullscreen();
+    } else {
+      enterFullscreen();
+    }
+  }, [enterFullscreen, exitFullscreen, fullscreenMode]);
+
+  const handleExit = useCallback(() => {
+    if (fullscreenMode) {
+      exitFullscreen();
+    }
+    onExit();
+  }, [exitFullscreen, fullscreenMode, onExit]);
+
   // Init renderer
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -76,7 +153,8 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
       renderer.init();
       renderer.resize();
       renderer.setStarSizeScale(starSize);
-      renderer.setPlanarView();
+      renderer.setPlanarView(DEFAULT_ZOOM_DISTANCE);
+      updateZoomDistance();
       setRendererReady(true);
     } catch (error) {
       console.error(error);
@@ -92,7 +170,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
       renderer.dispose();
       rendererRef.current = null;
     };
-  }, []);
+  }, [updateZoomDistance]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!rendererReady) return;
@@ -101,6 +179,48 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     renderer.setStarSizeScale(starSize);
     renderer.render();
   }, [rendererReady, starSize]);
+
+  useEffect(() => {
+    if (!rendererReady) return;
+    updateZoomDistance();
+  }, [rendererReady, updateZoomDistance]);
+
+  // Track render FPS on the main thread.
+  useEffect(() => {
+    if (!rendererReady) return;
+    let frames = 0;
+    let last = performance.now();
+    let rafId: number;
+    const tick = () => {
+      frames += 1;
+      const now = performance.now();
+      if (now - last >= 1000) {
+        const fps = Math.round((frames * 1000) / (now - last));
+        setPerfStats((prev) => ({ ...prev, renderFps: fps }));
+        frames = 0;
+        last = now;
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [rendererReady]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const handleFullscreenChange = () => {
+      const isActive = document.fullscreenElement === shellRef.current;
+      setFullscreenMode(isActive);
+      const renderer = rendererRef.current;
+      if (renderer) {
+        renderer.resize();
+        renderer.render();
+        updateZoomDistance();
+      }
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, [updateZoomDistance]);
 
   // Pointer controls (pan + zoom)
   useEffect(() => {
@@ -146,7 +266,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
         const dist = currentPinchDistance();
         if (lastPinchDistance !== null && dist > 0) {
           const delta = lastPinchDistance - dist;
-          renderer.zoom(delta * pinchScale);
+          applyZoomDelta(delta * pinchScale);
         }
         lastPinchDistance = dist;
         return;
@@ -177,7 +297,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      renderer.zoom(-e.deltaY * 0.05);
+      applyZoomDelta(-e.deltaY * 0.05);
     };
     canvas.addEventListener("pointerdown", onDown);
     canvas.addEventListener("pointermove", onMove);
@@ -191,7 +311,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
       canvas.removeEventListener("pointercancel", onUp);
       canvas.removeEventListener("wheel", onWheel);
     };
-  }, [rendererReady]);
+  }, [applyZoomDelta, rendererReady]);
 
   // Worker setup
   useEffect(() => {
@@ -206,23 +326,41 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
         setRunning(false);
         return;
       }
+      if (msg.type === "stats") {
+        setPerfStats((prev) => ({ ...prev, simFps: Math.round(msg.simFps), simStepMs: msg.stepMs }));
+        return;
+      }
       if (msg.type === "ready") {
         setStatus(`Ready · Stars: ${msg.count.toLocaleString()}`);
         return;
       }
       if (msg.type === "frame") {
-        const positions = new Float32Array(msg.positions);
-        syncPositionsToBuffer(positions, msg.countA, msg.countB);
+        latestFrameRef.current = { positions: msg.positions, countA: msg.countA, countB: msg.countB, shared: msg.shared };
+        if (!framePendingRef.current) {
+          framePendingRef.current = true;
+          rafIdRef.current = requestAnimationFrame(() => {
+            framePendingRef.current = false;
+            const frame = latestFrameRef.current;
+            if (!frame) return;
+            syncPositionsToBuffer(frame.positions, frame.countA, frame.countB);
+          });
+        }
       }
     };
     return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+        framePendingRef.current = false;
+      }
       worker.postMessage({ type: "terminate" });
       worker.terminate();
       workerRef.current = null;
     };
   }, []);
 
-  const syncPositionsToBuffer = (positions: Float32Array, countA: number, countB: number) => {
+  const syncPositionsToBuffer = (positionsBuffer: ArrayBufferLike, countA: number, countB: number) => {
+    const positions = new Float32Array(positionsBuffer);
     const total = positions.length / 2;
     const renderer = rendererRef.current;
     if (!renderer) return;
@@ -238,7 +376,9 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
       }
       baseBufferRef.current = buffer;
       starCountRef.current = total;
+      const t0 = performance.now();
       renderer.setStars({ data: buffer, count: total });
+      setPerfStats((prev) => ({ ...prev, uploadMs: performance.now() - t0 }));
     }
 
     const buffer = baseBufferRef.current!;
@@ -247,7 +387,9 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
       buffer[i * 5 + 1] = positions[i * 2 + 1];
       buffer[i * 5 + 2] = 0;
     }
+    const t1 = performance.now();
     renderer.updateStarBuffer(buffer);
+    setPerfStats((prev) => ({ ...prev, uploadMs: performance.now() - t1 }));
   };
 
   // Re-init worker when galaxies change
@@ -255,7 +397,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     if (!workerRef.current) return;
     setLoading(true);
     setStatus("Generating galaxies...");
-    const cap = isMobile ? MOBILE_STAR_CAP : DESKTOP_STAR_CAP;
+    const cap = STAR_CAP_PER_GALAXY;
     const aParams = galaxyA.params;
     const bParams = galaxyB.params;
     const capped = clampCollisionStars(aParams, bParams, cap);
@@ -300,6 +442,21 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [galaxyA, galaxyB, impactOffset, relativeSpeed, isMobile, timeScale]);
 
+  useEffect(
+    () => () => {
+      if (typeof document === "undefined") return;
+      if (document.fullscreenElement === shellRef.current) {
+        const exitPromise = document.exitFullscreen?.();
+        if (exitPromise) {
+          exitPromise.catch(() => {
+            /* ignore fullscreen exit errors */
+          });
+        }
+      }
+    },
+    []
+  );
+
   const pause = () => {
     workerRef.current?.postMessage({ type: "pause" });
     setRunning(false);
@@ -318,7 +475,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
   };
 
   const setFromPreset = (target: "A" | "B", name: string) => {
-    const presetParams = findPreset(name) ?? resolvePreset(name);
+    const presetParams = capForCollision(findPreset(name) ?? resolvePreset(name));
     const next = makeGalaxyInstance(name, presetParams, {
       color: target === "A" ? "#ff9f6d" : "#7bd8ff",
       massScale: 1
@@ -328,7 +485,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
   };
 
   const useCurrentParams = (target: "A" | "B") => {
-    const next = makeGalaxyInstance("My galaxy", currentParams, {
+    const next = makeGalaxyInstance("My galaxy", capForCollision(currentParams), {
       color: target === "A" ? "#ff9f6d" : "#7bd8ff",
       massScale: 1
     });
@@ -338,9 +495,9 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
 
   const scaleResolution = (target: "A" | "B", scale: number) => {
     if (target === "A") {
-      setGalaxyA((prev) => ({ ...prev, params: scaleGalaxy(prev.params, scale) }));
+      setGalaxyA((prev) => ({ ...prev, params: capForCollision(scaleGalaxy(prev.params, scale)) }));
     } else {
-      setGalaxyB((prev) => ({ ...prev, params: scaleGalaxy(prev.params, scale) }));
+      setGalaxyB((prev) => ({ ...prev, params: capForCollision(scaleGalaxy(prev.params, scale)) }));
     }
   };
 
@@ -363,7 +520,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
         <div className="panel-heading-row">
           <div className="panel-heading">Collision viewport</div>
           <div className="heading-actions">
-            <button className="btn secondary" onClick={onExit} type="button">
+            <button className="btn secondary" onClick={handleExit} type="button">
               Back to explorer
             </button>
           </div>
@@ -401,15 +558,52 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
               onChange={(e) => setTimeScale(parseFloat(e.target.value))}
             />
           </div>
+          <div className="zoom-controls" aria-label="Zoom controls">
+            <div className="zoom-row">
+              <div className="zoom-label">Zoom</div>
+              <div className="zoom-value">{Math.round(zoomDistance)}</div>
+            </div>
+            <input
+              className="zoom-slider"
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={distanceToSlider(zoomDistance)}
+              onChange={(e) => handleZoomSlider(sliderToDistance(parseFloat(e.target.value)))}
+              aria-valuemin={ZOOM_MIN}
+              aria-valuemax={ZOOM_MAX}
+              aria-valuenow={Math.round(zoomDistance)}
+              aria-label="Zoom level"
+            />
+            <div className="zoom-legend" aria-hidden="true">
+              <span>Wide</span>
+              <span>Close</span>
+            </div>
+          </div>
         </div>
-        <div className="canvas-shell">
+        <div className={`canvas-shell ${fullscreenMode ? "is-immersive" : ""}`} ref={shellRef}>
           <canvas ref={canvasRef} className="viewport" />
           <div className="scene-badge">
             <div className="scene-title">Galaxy collision lab</div>
             <div className="scene-meta">{status}</div>
           </div>
+          <div className="perf-badge">
+            <div>Render: {perfStats.renderFps.toFixed(0)} fps</div>
+            <div>Sim: {perfStats.simFps.toFixed(0)} fps ({perfStats.simStepMs.toFixed(2)} ms)</div>
+            <div>Upload: {perfStats.uploadMs.toFixed(2)} ms</div>
+          </div>
+          <div className="view-actions">
+            <button
+              className={`fullscreen-btn ${fullscreenMode ? "is-active" : ""}`}
+              onClick={toggleFullscreen}
+              type="button"
+            >
+              {fullscreenMode ? "Exit full view" : "Full Screen"}
+            </button>
+          </div>
           <div className="hint">
-            Drag to pan · Pinch or scroll to zoom · Total stars: {totalStars.toLocaleString()}
+            Drag to pan | Pinch/scroll or use the zoom slider | Total stars: {totalStars.toLocaleString()}
           </div>
         </div>
       </section>
@@ -575,9 +769,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
             </div>
             <div className="chip-row" style={{ marginTop: 8 }}>
               <div className="title-status">Total stars: {totalStars.toLocaleString()}</div>
-              <div className="title-status">
-                Star cap: {(isMobile ? MOBILE_STAR_CAP : DESKTOP_STAR_CAP).toLocaleString()}
-              </div>
+              <div className="title-status">Star cap per galaxy: {STAR_CAP_PER_GALAXY.toLocaleString()}</div>
             </div>
           </div>
         </div>
@@ -588,6 +780,18 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function distanceToSlider(distance: number) {
+  const span = ZOOM_MAX - ZOOM_MIN;
+  const clamped = clampNumber(distance, ZOOM_MIN, ZOOM_MAX);
+  return span ? ((ZOOM_MAX - clamped) / span) * 100 : 0;
+}
+
+function sliderToDistance(value: number) {
+  const span = ZOOM_MAX - ZOOM_MIN;
+  const clamped = clampNumber(value, 0, 100);
+  return ZOOM_MAX - (clamped / 100) * span;
 }
 
 function effectiveMass(params: GalaxyParameters, massScale: number) {

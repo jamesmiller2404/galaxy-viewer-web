@@ -97,6 +97,7 @@ export default function App() {
   const tiltOrigin = useRef<TiltReference | null>(null);
   const [controlMode, setControlMode] = useState<"explore" | "advanced">("explore");
   const [viewMode, setViewMode] = useState<"single" | "collision">("single");
+  const [perfStats, setPerfStats] = useState({ renderFps: 0, uploadMs: 0 });
 
   const updateZoomDistance = React.useCallback(() => {
     const renderer = rendererRef.current;
@@ -176,6 +177,27 @@ export default function App() {
     });
     return () => cancelAnimationFrame(raf);
   }, [rendererReady, fullscreenMode]);
+
+  // Render FPS tracker
+  useEffect(() => {
+    if (!rendererReady) return;
+    let frames = 0;
+    let last = performance.now();
+    let rafId: number;
+    const tick = () => {
+      frames += 1;
+      const now = performance.now();
+      if (now - last >= 1000) {
+        const fps = Math.round((frames * 1000) / (now - last));
+        setPerfStats((prev) => ({ ...prev, renderFps: fps }));
+        frames = 0;
+        last = now;
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [rendererReady]);
 
   useEffect(() => {
     if (!rendererReady) return;
@@ -309,7 +331,12 @@ export default function App() {
       if (msg.type === "result") {
         if (msg.id !== currentRequestId.current) return;
         const data = new Float32Array(msg.buffer);
-        rendererRef.current?.setStars({ data, count: msg.count });
+        const renderer = rendererRef.current;
+        if (renderer) {
+          const t0 = performance.now();
+          renderer.setStars({ data, count: msg.count });
+          setPerfStats((prev) => ({ ...prev, uploadMs: performance.now() - t0 }));
+        }
         setStatus(`Stars: ${msg.count.toLocaleString()}`);
         setGenerating(false);
       } else if (msg.type === "error") {
@@ -583,6 +610,10 @@ export default function App() {
                 <div className="scene-title">{presetName}</div>
               </div>
             )}
+            <div className="perf-badge">
+              <div>Render: {perfStats.renderFps.toFixed(0)} fps</div>
+              <div>Upload: {perfStats.uploadMs.toFixed(2)} ms</div>
+            </div>
             {fullscreenMode && (
               <div className="view-actions">
                 <button className="fullscreen-btn is-active" onClick={toggleFullscreenMode} type="button">
