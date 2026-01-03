@@ -271,7 +271,7 @@ h1 {
 .canvas-shell:fullscreen .view-actions,
 .canvas-shell:-webkit-full-screen .view-actions {
   top: calc(env(safe-area-inset-top) + 12px);
-  right: calc(env(safe-area-inset-right) + 12px);
+  left: calc(env(safe-area-inset-left) + 12px);
 }
 
 .canvas-shell.is-immersive .hint,
@@ -750,7 +750,8 @@ h1 {
 .view-actions {
   position: absolute;
   top: 12px;
-  right: 12px;
+  left: 12px;
+  right: auto;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -758,7 +759,8 @@ h1 {
 
 .page.is-immersive .view-actions {
   top: calc(env(safe-area-inset-top) + 12px);
-  right: calc(env(safe-area-inset-right) + 12px);
+  left: calc(env(safe-area-inset-left) + 12px);
+  right: auto;
 }
 
 .zoom-controls {

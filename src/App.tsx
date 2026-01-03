@@ -32,8 +32,6 @@ type TiltReference = {
 
 const DEFAULT_PRESET_NAME = "Andromeda (M31)";
 const TILT_RESPONSE_GAIN = 1.5;
-const ZOOM_MIN = 5;
-const ZOOM_MAX = 600;
 const DEFAULT_ZOOM_DISTANCE = 75;
 
 type FeaturedPresetCard = {
@@ -87,7 +85,6 @@ export default function App() {
   const [, setStatus] = useState("Ready");
   const [generating, setGenerating] = useState(false);
   const [rendererReady, setRendererReady] = useState(false);
-  const [zoomDistance, setZoomDistance] = useState<number>(DEFAULT_ZOOM_DISTANCE);
   const [fullscreenMode, setFullscreenMode] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [tiltSupported, setTiltSupported] = useState(false);
@@ -115,7 +112,6 @@ export default function App() {
       }
       return { yaw, pitch, distance };
     });
-    setZoomDistance((prev) => (prev === distance ? prev : distance));
   }, []);
 
   const applyZoomDelta = React.useCallback(
@@ -123,16 +119,6 @@ export default function App() {
       const renderer = rendererRef.current;
       if (!renderer) return;
       renderer.zoom(delta);
-      syncCameraReadout();
-    },
-    [syncCameraReadout]
-  );
-
-  const handleZoomSlider = React.useCallback(
-    (distance: number) => {
-      const renderer = rendererRef.current;
-      if (!renderer) return;
-      renderer.setZoomDistance(distance);
       syncCameraReadout();
     },
     [syncCameraReadout]
@@ -264,6 +250,7 @@ export default function App() {
     let lastY = 0;
     let lastPinchDistance: number | null = null;
     const pinchScale = 0.12;
+    const ctrlClickZoomDelta = -10;
 
     const updatePointer = (e: PointerEvent) => {
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -276,6 +263,12 @@ export default function App() {
     };
 
     const onDown = (e: PointerEvent) => {
+      if (e.ctrlKey && e.button === 0) {
+        e.preventDefault();
+        applyZoomDelta(ctrlClickZoomDelta);
+        return;
+      }
+
       updatePointer(e);
       if (activePointers.size === 1) {
         draggingId = e.pointerId;
@@ -587,7 +580,7 @@ export default function App() {
           <ul className="help-list">
             <li>If you are on a mobile device like a cell phone, make sure the screen brightness is turned all the way up.</li>
             <li>Start with a preset galaxy form from the drop down menu or hit Random Galaxy - it loads and regenerates instantly.</li>
-            <li>Step 1: Drag left/right to orbit. Step 2: Pinch to zoom in/out or drag the zoom slider. Step 3: Hit Full Screen for a better experience.</li>
+            <li>Step 1: Drag left/right to orbit. Step 2: Pinch or scroll to zoom (Ctrl + Left Click to zoom in). Step 3: Hit Full Screen for a better experience.</li>
             <li>Explore mode sliders are user friendly; Advanced mode gives access to more parameter options.</li>
             <li>On a mobile device like a cell phone, tilting or turning the device will tilt and rotate the galaxy (only on devices with accelerometers).</li>
           </ul>
@@ -613,29 +606,6 @@ export default function App() {
           )}
           {!fullscreenMode && (
             <div className="viewport-toolbar">
-              <div className="zoom-controls" aria-label="Zoom controls">
-                <div className="zoom-row">
-                  <div className="zoom-label">Zoom</div>
-                  <div className="zoom-value">{Math.round(zoomDistance)}</div>
-                </div>
-                <input
-                  className="zoom-slider"
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={distanceToSlider(zoomDistance)}
-                  onChange={(e) => handleZoomSlider(sliderToDistance(parseFloat(e.target.value)))}
-                  aria-valuemin={ZOOM_MIN}
-                  aria-valuemax={ZOOM_MAX}
-                  aria-valuenow={Math.round(zoomDistance)}
-                  aria-label="Zoom level"
-                />
-                <div className="zoom-legend" aria-hidden="true">
-                  <span>Wide</span>
-                  <span>Close</span>
-                </div>
-              </div>
               <button className="fullscreen-btn" onClick={toggleFullscreenMode} type="button">
                 Full Screen
               </button>
@@ -676,7 +646,7 @@ export default function App() {
             )}
             {!fullscreenMode && (
               <div className="hint">
-                Drag to orbit | Pinch or use the zoom slider
+                Drag to orbit | Pinch or scroll to zoom | Ctrl+Left click to zoom in
                 {tiltSupported ? " | Tilt to steer on mobile" : ""}
               </div>
             )}
@@ -1220,18 +1190,6 @@ function NumericField({
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
-}
-
-function distanceToSlider(distance: number) {
-  const span = ZOOM_MAX - ZOOM_MIN;
-  const clamped = clampNumber(distance, ZOOM_MIN, ZOOM_MAX);
-  return span ? ((ZOOM_MAX - clamped) / span) * 100 : 0;
-}
-
-function sliderToDistance(value: number) {
-  const span = ZOOM_MAX - ZOOM_MIN;
-  const clamped = clampNumber(value, 0, 100);
-  return ZOOM_MAX - (clamped / 100) * span;
 }
 
 function buildDeviceRotationMatrix(alpha: number, beta: number, gamma: number, screenAngle: number) {
