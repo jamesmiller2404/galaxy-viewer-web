@@ -32,9 +32,9 @@ type TiltReference = {
 
 const DEFAULT_PRESET_NAME = "Andromeda (M31)";
 const TILT_RESPONSE_GAIN = 1.5;
-const ZOOM_MIN = 10;
-const ZOOM_MAX = 400;
-const DEFAULT_ZOOM_DISTANCE = 90;
+const ZOOM_MIN = 5;
+const ZOOM_MAX = 600;
+const DEFAULT_ZOOM_DISTANCE = 75;
 
 type FeaturedPresetCard = {
   title: string;
@@ -98,11 +98,24 @@ export default function App() {
   const [controlMode, setControlMode] = useState<"explore" | "advanced">("explore");
   const [viewMode, setViewMode] = useState<"single" | "collision">("single");
   const [perfStats, setPerfStats] = useState({ renderFps: 0, uploadMs: 0 });
+  const [cameraReadout, setCameraReadout] = useState({
+    yaw: 0,
+    pitch: 0,
+    distance: DEFAULT_ZOOM_DISTANCE
+  });
 
-  const updateZoomDistance = React.useCallback(() => {
+  const syncCameraReadout = React.useCallback(() => {
     const renderer = rendererRef.current;
     if (!renderer) return;
-    setZoomDistance(renderer.getZoomDistance());
+    const { yaw, pitch } = renderer.getAngles();
+    const distance = renderer.getZoomDistance();
+    setCameraReadout((prev) => {
+      if (prev.yaw === yaw && prev.pitch === pitch && prev.distance === distance) {
+        return prev;
+      }
+      return { yaw, pitch, distance };
+    });
+    setZoomDistance((prev) => (prev === distance ? prev : distance));
   }, []);
 
   const applyZoomDelta = React.useCallback(
@@ -110,9 +123,9 @@ export default function App() {
       const renderer = rendererRef.current;
       if (!renderer) return;
       renderer.zoom(delta);
-      updateZoomDistance();
+      syncCameraReadout();
     },
-    [updateZoomDistance]
+    [syncCameraReadout]
   );
 
   const handleZoomSlider = React.useCallback(
@@ -120,9 +133,9 @@ export default function App() {
       const renderer = rendererRef.current;
       if (!renderer) return;
       renderer.setZoomDistance(distance);
-      updateZoomDistance();
+      syncCameraReadout();
     },
-    [updateZoomDistance]
+    [syncCameraReadout]
   );
 
   // Apply theme tokens to CSS variables
@@ -141,6 +154,16 @@ export default function App() {
     setTiltSupported("DeviceOrientationEvent" in window);
   }, []);
 
+  useEffect(() => {
+    if (!rendererReady) return;
+    const tick = () => {
+      syncCameraReadout();
+      rafId = requestAnimationFrame(tick);
+    };
+    let rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [rendererReady, syncCameraReadout]);
+
   // Init renderer
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -151,7 +174,7 @@ export default function App() {
       renderer.init();
       renderer.resize();
       setRendererReady(true);
-      updateZoomDistance();
+      syncCameraReadout();
     } catch (error) {
       console.error(error);
       setStatus("Failed to init WebGL");
@@ -165,7 +188,7 @@ export default function App() {
       window.removeEventListener("resize", onResize);
       renderer.dispose();
     };
-  }, [updateZoomDistance]);
+  }, [syncCameraReadout]);
 
   useEffect(() => {
     if (!rendererReady) return;
@@ -286,6 +309,7 @@ export default function App() {
         if (tiltEnabled) {
           tiltOrigin.current = null;
         }
+        syncCameraReadout();
       }
     };
     const onUp = (e: PointerEvent) => {
@@ -318,7 +342,7 @@ export default function App() {
       canvas.removeEventListener("pointercancel", onUp);
       canvas.removeEventListener("wheel", onWheel);
     };
-  }, [rendererReady, tiltEnabled, applyZoomDelta]);
+  }, [rendererReady, tiltEnabled, applyZoomDelta, syncCameraReadout]);
 
   // Worker setup
   useEffect(() => {
@@ -430,11 +454,12 @@ export default function App() {
       const yaw = Math.atan2(boostedForward[2], boostedForward[0]);
       const pitch = Math.asin(clampNumber(boostedForward[1], -1, 1));
       renderer.setAngles(yaw, pitch);
+      syncCameraReadout();
     };
 
     window.addEventListener("deviceorientation", handleOrientation, true);
     return () => window.removeEventListener("deviceorientation", handleOrientation, true);
-  }, [rendererReady, tiltEnabled]);
+  }, [rendererReady, tiltEnabled, syncCameraReadout]);
 
   useEffect(() => {
     if (!tiltEnabled) return;
@@ -453,6 +478,9 @@ export default function App() {
   const presetOptions = useMemo(() => presets.map((p) => p.name), []);
   const starCountMax = isMobile ? Math.max(0, MOBILE_STAR_CAP - params.bulgeStarCount) : 5_000_000;
   const bulgeStarCountMax = isMobile ? Math.max(0, MOBILE_STAR_CAP - params.starCount) : 100000;
+  const yawDeg = roundTo(normalizeDegrees(radToDeg(cameraReadout.yaw)), 1);
+  const pitchDeg = roundTo(normalizeDegrees(radToDeg(cameraReadout.pitch)), 1);
+  const distanceDisplay = roundTo(cameraReadout.distance, 1);
 
   const updateParam = (key: keyof GalaxyParameters, value: number) => {
     setParams((prev) => applyMobileStarLimit({ ...prev, [key]: value }, isMobile));
@@ -548,10 +576,11 @@ export default function App() {
             </button>
           </div>
           <ul className="help-list">
-            <li>Start with a preset card or hit Random Galaxy - it loads and regenerates instantly.</li>
-            <li>Step 1: Drag to orbit. Step 2: Pinch or drag the zoom slider. Step 3: Switch a preset.</li>
-            <li>Explore mode sliders are friendly; Advanced keeps the detailed knobs and scrubbable labels.</li>
-            <li>Full view toggles fullscreen; on mobile, tilt can steer if available.</li>
+            <li>If you are on a mobile device like a cell phone, make sure the screen brightness is turned all the way up.</li>
+            <li>Start with a preset galaxy form from the drop down menu or hit Random Galaxy - it loads and regenerates instantly.</li>
+            <li>Step 1: Drag left/right to orbit. Step 2: Pinch to zoom in/out or drag the zoom slider. Step 3: Hit Full Screen for a better experience.</li>
+            <li>Explore mode sliders are user friendly; Advanced mode gives access to more parameter options.</li>
+            <li>On a mobile device like a cell phone, tilting or turning the device will tilt and rotate the galaxy (only on devices with accelerometers).</li>
           </ul>
         </aside>
       )}
@@ -605,14 +634,29 @@ export default function App() {
           )}
           <div className="canvas-shell" ref={viewportShellRef}>
             <canvas ref={canvasRef} className="viewport" />
-            {!fullscreenMode && (
-              <div className={`scene-badge ${generating ? "is-loading" : ""}`}>
-                <div className="scene-title">{presetName}</div>
+            <div className="view-overlay-stack">
+              {!fullscreenMode && (
+                <div className={`scene-badge ${generating ? "is-loading" : ""}`}>
+                  <div className="scene-title">{presetName}</div>
+                </div>
+              )}
+              {tiltStatus && <div className="tilt-chip">{tiltStatus}</div>}
+            </div>
+            <div className="hud-right">
+              <div className="camera-readout-shell" aria-label="Camera readout">
+                <div className="camera-readout-grid">
+                  <span className="camera-readout-key">Yaw</span>
+                  <span className="camera-readout-value">{yawDeg.toFixed(1)} deg</span>
+                  <span className="camera-readout-key">Pitch</span>
+                  <span className="camera-readout-value">{pitchDeg.toFixed(1)} deg</span>
+                  <span className="camera-readout-key">Distance</span>
+                  <span className="camera-readout-value">{distanceDisplay.toFixed(1)}</span>
+                </div>
               </div>
-            )}
-            <div className="perf-badge">
-              <div>Render: {perfStats.renderFps.toFixed(0)} fps</div>
-              <div>Upload: {perfStats.uploadMs.toFixed(2)} ms</div>
+              <div className="perf-badge perf-badge--hud">
+                <div>Render: {perfStats.renderFps.toFixed(0)} fps</div>
+                <div>Upload: {perfStats.uploadMs.toFixed(2)} ms</div>
+              </div>
             </div>
             {fullscreenMode && (
               <div className="view-actions">
@@ -627,7 +671,6 @@ export default function App() {
                 {tiltSupported ? " | Tilt to steer on mobile" : ""}
               </div>
             )}
-            {tiltStatus && <div className="tilt-chip">{tiltStatus}</div>}
           </div>
         </section>
 
@@ -1222,6 +1265,15 @@ function getScreenOrientationAngle() {
     return legacy;
   }
   return 0;
+}
+
+function radToDeg(value: number) {
+  return (value * 180) / Math.PI;
+}
+
+function normalizeDegrees(value: number) {
+  const wrapped = ((value % 360) + 360) % 360;
+  return wrapped > 180 ? wrapped - 360 : wrapped;
 }
 
 function degToRad(value: number) {

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { mat4, vec3, vec4 } from "gl-matrix";
 import { GalaxyRenderer } from "@gl/renderer";
 import { GalaxyParameters } from "@domain/parameters";
 import { findPreset, presets } from "@domain/presets";
@@ -18,6 +19,11 @@ const DEFAULT_G = 24.0;
 const ZOOM_MIN = 10;
 const ZOOM_MAX = 400;
 const DEFAULT_ZOOM_DISTANCE = 90;
+const GALAXY_SEPARATION = 40;
+const VELOCITY_HANDLE_SCALE = 12;
+const MAX_VECTOR_SPEED = 12;
+const VECTOR_DRAW_SCALE = VELOCITY_HANDLE_SCALE;
+const DEFAULT_VECTOR_SPEED = 1.5;
 
 type GalaxySelection = {
   name: string;
@@ -25,6 +31,18 @@ type GalaxySelection = {
   massScale: number;
   color: string;
 };
+
+type VelocityVector = { vx: number; vy: number };
+
+type ViewState = {
+  target: [number, number, number];
+  angles: { yaw: number; pitch: number };
+  distance: number;
+  viewport: { width: number; height: number };
+  useOrtho: boolean;
+};
+
+type VectorLinkMode = "mirror" | "match" | "free";
 
 type Props = {
   currentParams: GalaxyParameters;
@@ -52,15 +70,22 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
   >(null);
   const framePendingRef = useRef(false);
   const rafIdRef = useRef<number | null>(null);
+  const vectorDragRef = useRef<{ target: "A" | "B"; pointerId: number } | null>(null);
   const [rendererReady, setRendererReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [impactOffset, setImpactOffset] = useState(12);
-  const [relativeSpeed, setRelativeSpeed] = useState(1.5);
   const [timeScale, setTimeScale] = useState(2);
   const [status, setStatus] = useState("Select presets and start the collision");
   const [starSize, setStarSize] = useState(0.35);
   const [zoomDistance, setZoomDistance] = useState(DEFAULT_ZOOM_DISTANCE);
+  const [viewState, setViewState] = useState<ViewState>({
+    target: [0, 0, 0],
+    angles: { yaw: -Math.PI / 2, pitch: 0 },
+    distance: DEFAULT_ZOOM_DISTANCE,
+    viewport: { width: 0, height: 0 },
+    useOrtho: true
+  });
   const [fullscreenMode, setFullscreenMode] = useState(false);
   const [perfStats, setPerfStats] = useState({ renderFps: 0, uploadMs: 0, simFps: 0, simStepMs: 0 });
 
@@ -78,6 +103,9 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     });
     return { ...base };
   });
+  const [velocityA, setVelocityA] = useState<VelocityVector>({ vx: 0, vy: DEFAULT_VECTOR_SPEED });
+  const [velocityB, setVelocityB] = useState<VelocityVector>({ vx: 0, vy: -DEFAULT_VECTOR_SPEED });
+  const [vectorLinkMode, setVectorLinkMode] = useState<VectorLinkMode>("free");
 
   const presetOptions = useMemo(() => presets.map((p) => p.name), []);
   const totalStars = useMemo(() => {
@@ -85,12 +113,51 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     const b = galaxyB.params;
     return a.starCount + a.bulgeStarCount + b.starCount + b.bulgeStarCount;
   }, [galaxyA.params, galaxyB.params]);
+  const centers = useMemo(() => makeGalaxyCenters(impactOffset), [impactOffset]);
+  const velocityStats = useMemo(
+    () => ({
+      A: vectorToPolar(velocityA),
+      B: vectorToPolar(velocityB)
+    }),
+    [velocityA, velocityB]
+  );
+  const vectors = useMemo(
+    () => [
+      { id: "A" as const, color: galaxyA.color, center: centers.A, vector: velocityA },
+      { id: "B" as const, color: galaxyB.color, center: centers.B, vector: velocityB }
+    ],
+    [centers, galaxyA.color, galaxyB.color, velocityA, velocityB]
+  );
+  const showVectors = !running;
+
+  const getLatestViewState = useCallback((): ViewState | null => {
+    const renderer = rendererRef.current;
+    const canvas = canvasRef.current;
+    const cameraState = renderer?.getCameraState?.();
+    if (!renderer || !canvas || !cameraState || !cameraState.useOrtho) return null;
+    const width = canvas.clientWidth || canvas.width || 1;
+    const height = canvas.clientHeight || canvas.height || 1;
+    return {
+      target: [cameraState.target[0], cameraState.target[1], cameraState.target[2] ?? 0],
+      angles: cameraState.angles,
+      distance: cameraState.distance,
+      viewport: { width, height },
+      useOrtho: cameraState.useOrtho
+    };
+  }, []);
+
+  const syncViewState = useCallback(() => {
+    const latest = getLatestViewState();
+    if (!latest) return;
+    setViewState(latest);
+  }, [getLatestViewState]);
 
   const updateZoomDistance = useCallback(() => {
     const renderer = rendererRef.current;
     if (!renderer) return;
     setZoomDistance(renderer.getZoomDistance());
-  }, []);
+    syncViewState();
+  }, [syncViewState]);
 
   const applyZoomDelta = useCallback(
     (delta: number) => {
@@ -110,6 +177,70 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
       updateZoomDistance();
     },
     [updateZoomDistance]
+  );
+
+  const buildViewProjection = useCallback(
+    (state: ViewState) => {
+      const target = vec3.fromValues(state.target[0], state.target[1], state.target[2] ?? 0);
+      const forward = vec3.fromValues(
+        Math.cos(state.angles.pitch) * Math.cos(state.angles.yaw),
+        Math.sin(state.angles.pitch),
+        Math.cos(state.angles.pitch) * Math.sin(state.angles.yaw)
+      );
+      const eye = vec3.scaleAndAdd(vec3.create(), target, forward, state.distance);
+      const up = vec3.fromValues(0, 1, 0);
+      const view = mat4.create();
+      mat4.lookAt(view, eye, target, up);
+      const { width, height } = state.viewport;
+      const aspect = width / Math.max(1, height);
+      const projection = mat4.create();
+      if (state.useOrtho) {
+        const size = state.distance;
+        mat4.ortho(projection, -size * aspect, size * aspect, -size, size, -500, 500);
+      } else {
+        mat4.perspective(projection, degToRad(60), Math.max(0.1, aspect), 0.1, 1000);
+      }
+      const vp = mat4.multiply(mat4.create(), projection, view);
+      const invVp = mat4.invert(mat4.create(), vp) ?? null;
+      return { vp, invVp };
+    },
+    []
+  );
+
+  const worldToScreen = useCallback(
+    (point: [number, number], state?: ViewState) => {
+      const next = state ?? getLatestViewState() ?? viewState;
+      const { width, height } = next.viewport;
+      if (width <= 0 || height <= 0) return null;
+      const { vp } = buildViewProjection(next);
+      const world = vec4.fromValues(point[0], point[1], 0, 1);
+      const clip = vec4.transformMat4(vec4.create(), world, vp);
+      const w = clip[3] || 1;
+      const xNdc = clip[0] / w;
+      const yNdc = clip[1] / w;
+      return {
+        x: (xNdc * 0.5 + 0.5) * width,
+        y: (1 - (yNdc * 0.5 + 0.5)) * height
+      };
+    },
+    [buildViewProjection, getLatestViewState, viewState]
+  );
+
+  const screenToWorld = useCallback(
+    (x: number, y: number, state?: ViewState) => {
+      const next = state ?? getLatestViewState() ?? viewState;
+      const { width, height } = next.viewport;
+      if (width <= 0 || height <= 0) return null;
+      const { invVp } = buildViewProjection(next);
+      if (!invVp) return null;
+      const xNdc = (x / width) * 2 - 1;
+      const yNdc = 1 - (y / height) * 2;
+      const clip = vec4.fromValues(xNdc, yNdc, 0, 1);
+      const world = vec4.transformMat4(vec4.create(), clip, invVp);
+      const w = world[3] || 1;
+      return { x: world[0] / w, y: world[1] / w };
+    },
+    [buildViewProjection, getLatestViewState, viewState]
   );
 
   const enterFullscreen = useCallback(() => {
@@ -163,6 +294,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     const onResize = () => {
       renderer.resize();
       renderer.render();
+      updateZoomDistance();
     };
     window.addEventListener("resize", onResize);
     return () => {
@@ -183,7 +315,8 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
   useEffect(() => {
     if (!rendererReady) return;
     updateZoomDistance();
-  }, [rendererReady, updateZoomDistance]);
+    syncViewState();
+  }, [rendererReady, syncViewState, updateZoomDistance]);
 
   // Track render FPS on the main thread.
   useEffect(() => {
@@ -294,7 +427,8 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
         const dy = e.clientY - lastY;
         lastX = e.clientX;
         lastY = e.clientY;
-        renderer.pan2D(dx, dy);
+        renderer.pan2D(-dx, dy);
+        syncViewState();
       }
     };
     const onUp = (e: PointerEvent) => {
@@ -327,7 +461,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
       canvas.removeEventListener("pointercancel", onUp);
       canvas.removeEventListener("wheel", onWheel);
     };
-  }, [applyZoomDelta, rendererReady]);
+  }, [applyZoomDelta, rendererReady, syncViewState]);
 
   // Worker setup
   useEffect(() => {
@@ -347,7 +481,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
         return;
       }
       if (msg.type === "ready") {
-        setStatus(`Ready · Stars: ${msg.count.toLocaleString()}`);
+        setStatus(`Ready - Stars: ${msg.count.toLocaleString()}`);
         return;
       }
       if (msg.type === "frame") {
@@ -415,9 +549,6 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     setStatus("Generating galaxies...");
     const capped = clampCollisionStars(galaxyA.params, galaxyB.params, STAR_CAP_PER_GALAXY);
 
-    const separation = 40;
-    const offset = impactOffset * 0.5;
-
     const payload = {
       dt: DEFAULT_DT,
       timeScale,
@@ -428,15 +559,15 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
         {
           params: capped.a,
           mass: effectiveMass(capped.a, galaxyA.massScale),
-          center: [-separation, offset],
-          velocity: [0, relativeSpeed],
+          center: centers.A,
+          velocity: [velocityA.vx, velocityA.vy],
           seed: 1337
         },
         {
           params: capped.b,
           mass: effectiveMass(capped.b, galaxyB.massScale),
-          center: [separation, -offset],
-          velocity: [0, -relativeSpeed],
+          center: centers.B,
+          velocity: [velocityB.vx, velocityB.vy],
           seed: 4242
         }
       ]
@@ -445,12 +576,11 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     baseBufferRef.current = null;
     starCountRef.current = 0;
     workerRef.current.postMessage({ type: "init", payload });
-    workerRef.current.postMessage({ type: "start" });
-    setRunning(true);
+    setRunning(false);
     setLoading(false);
-    setStatus("Running collision sim...");
+    setStatus("Ready to play");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [galaxyA, galaxyB, impactOffset, relativeSpeed, isMobile]);
+  }, [galaxyA, galaxyB, centers, velocityA, velocityB, isMobile]);
 
   // Adjust time scale without re-seeding galaxies.
   useEffect(() => {
@@ -476,18 +606,24 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
   const pause = () => {
     workerRef.current?.postMessage({ type: "pause" });
     setRunning(false);
+    setStatus("Paused");
   };
 
   const start = () => {
     workerRef.current?.postMessage({ type: "start" });
     setRunning(true);
+    setStatus("Running collision sim...");
   };
 
   const reset = () => {
     // Re-init to regenerate disks and reset centers.
+    pause();
     setGalaxyA((g) => ({ ...g }));
     setGalaxyB((g) => ({ ...g }));
-    setStatus("Reset · Ready");
+    setVelocityPair({ vx: 0, vy: DEFAULT_VECTOR_SPEED }, { vx: 0, vy: -DEFAULT_VECTOR_SPEED });
+    setVectorLinkMode("free");
+    setImpactOffset(12);
+    setStatus("Reset - Ready");
   };
 
   const setFromPreset = (target: "A" | "B", name: string) => {
@@ -529,6 +665,145 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     renderer?.setStarSizeScale(value);
     renderer?.render();
   };
+
+  const setVelocityPair = useCallback((a: VelocityVector, b: VelocityVector) => {
+    setVelocityA(clampVector(a, MAX_VECTOR_SPEED));
+    setVelocityB(clampVector(b, MAX_VECTOR_SPEED));
+  }, []);
+
+  const updateVelocity = useCallback(
+    (target: "A" | "B", vec: VelocityVector, options?: { skipLink?: boolean }) => {
+      const clamped = clampVector(vec, MAX_VECTOR_SPEED);
+      if (target === "A") {
+        setVelocityA(clamped);
+        if (!options?.skipLink) {
+          if (vectorLinkMode === "mirror") {
+            setVelocityB(clampVector(mirrorVector(clamped), MAX_VECTOR_SPEED));
+          } else if (vectorLinkMode === "match") {
+            setVelocityB(clamped);
+          }
+        }
+      } else {
+        setVelocityB(clamped);
+        if (!options?.skipLink) {
+          if (vectorLinkMode === "mirror") {
+            setVelocityA(clampVector(mirrorVector(clamped), MAX_VECTOR_SPEED));
+          } else if (vectorLinkMode === "match") {
+            setVelocityA(clamped);
+          }
+        }
+      }
+    },
+    [vectorLinkMode]
+  );
+
+  const setVelocityFromPolar = useCallback(
+    (target: "A" | "B", speed: number, angleDeg: number) => {
+      updateVelocity(target, vectorFromPolar(speed, angleDeg));
+    },
+    [updateVelocity]
+  );
+
+  const applyVelocityPreset = useCallback(
+    (preset: "head-on" | "grazing" | "orbit") => {
+      if (preset === "head-on") {
+        setVectorLinkMode("mirror");
+        setImpactOffset(12);
+        setVelocityPair(
+          { vx: 0, vy: DEFAULT_VECTOR_SPEED * 1.1 },
+          { vx: 0, vy: -DEFAULT_VECTOR_SPEED * 1.1 }
+        );
+        return;
+      }
+      if (preset === "grazing") {
+        setVectorLinkMode("mirror");
+        setImpactOffset(18);
+        setVelocityPair(
+          { vx: DEFAULT_VECTOR_SPEED * 0.5, vy: DEFAULT_VECTOR_SPEED * 1.15 },
+          { vx: -DEFAULT_VECTOR_SPEED * 0.5, vy: -DEFAULT_VECTOR_SPEED * 1.15 }
+        );
+        return;
+      }
+      setVectorLinkMode("mirror");
+      setImpactOffset(24);
+      setVelocityPair(
+        { vx: DEFAULT_VECTOR_SPEED * 0.9, vy: DEFAULT_VECTOR_SPEED * 0.8 },
+        { vx: -DEFAULT_VECTOR_SPEED * 0.9, vy: -DEFAULT_VECTOR_SPEED * 0.8 }
+      );
+    },
+    [setImpactOffset, setVectorLinkMode, setVelocityPair]
+  );
+
+  useEffect(() => {
+    if (vectorLinkMode === "free") return;
+    const target = vectorLinkMode === "mirror" ? mirrorVector(velocityA) : velocityA;
+    const clamped = clampVector(target, MAX_VECTOR_SPEED);
+    setVelocityB((prev) => (vectorsEqual(prev, clamped) ? prev : clamped));
+  }, [vectorLinkMode, velocityA]);
+
+  const handleVectorPointer = useCallback(
+    (target: "A" | "B", clientX: number, clientY: number) => {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const localX = clientX - rect.left;
+      const localY = clientY - rect.top;
+      const liveView = getLatestViewState();
+      const world = screenToWorld(localX, localY, liveView ?? undefined);
+      if (!world) return;
+      const center = target === "A" ? centers.A : centers.B;
+      const next = {
+        vx: (world.x - center[0]) / VELOCITY_HANDLE_SCALE,
+        vy: (world.y - center[1]) / VELOCITY_HANDLE_SCALE
+      };
+      updateVelocity(target, next);
+    },
+    [centers, getLatestViewState, screenToWorld, updateVelocity]
+  );
+
+  const handleMove = useCallback(
+    (event: PointerEvent) => {
+      const drag = vectorDragRef.current;
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      handleVectorPointer(drag.target, event.clientX, event.clientY);
+    },
+    [handleVectorPointer]
+  );
+
+  const endVectorDrag = useCallback(
+    (event?: PointerEvent) => {
+      const drag = vectorDragRef.current;
+      if (!drag) return;
+      if (event && "pointerId" in event && event.pointerId !== drag.pointerId) return;
+      vectorDragRef.current = null;
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", endVectorDrag);
+      window.removeEventListener("pointercancel", endVectorDrag);
+    },
+    [handleMove]
+  );
+
+  const startVectorDrag = useCallback(
+    (target: "A" | "B", event: React.PointerEvent) => {
+      event.stopPropagation();
+      event.preventDefault();
+      vectorDragRef.current = { target, pointerId: event.pointerId };
+      handleVectorPointer(target, event.clientX, event.clientY);
+      window.addEventListener("pointermove", handleMove);
+      window.addEventListener("pointerup", endVectorDrag);
+      window.addEventListener("pointercancel", endVectorDrag);
+    },
+    [endVectorDrag, handleMove, handleVectorPointer]
+  );
+
+  useEffect(
+    () => () => {
+      endVectorDrag();
+    },
+    [endVectorDrag]
+  );
+
+  const statsA = velocityStats.A;
+  const statsB = velocityStats.B;
 
   return (
     <div className="layout collision-layout">
@@ -600,6 +875,69 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
         </div>
         <div className={`canvas-shell ${fullscreenMode ? "is-immersive" : ""}`} ref={shellRef}>
           <canvas ref={canvasRef} className="viewport" />
+          {showVectors && (
+            <div className="vector-overlay" aria-hidden="true">
+              <svg
+                className="vector-svg"
+                viewBox={`0 0 ${Math.max(1, viewState.viewport.width)} ${Math.max(1, viewState.viewport.height)}`}
+                preserveAspectRatio="none"
+              >
+                {vectors.map(({ id, color, center, vector }) => {
+                  const start = worldToScreen(center);
+                  const end = worldToScreen([
+                    center[0] + vector.vx * VECTOR_DRAW_SCALE,
+                    center[1] + vector.vy * VECTOR_DRAW_SCALE
+                  ]);
+                  if (!start || !end) return null;
+                  return (
+                    <g key={id} className="vector-path">
+                      <line
+                        x1={start.x}
+                        y1={start.y}
+                        x2={end.x}
+                        y2={end.y}
+                        stroke={color}
+                        strokeWidth={2.5}
+                        strokeLinecap="round"
+                        strokeOpacity={0.9}
+                      />
+                      <circle cx={start.x} cy={start.y} r={4} fill={color} fillOpacity={0.75} />
+                    </g>
+                  );
+                })}
+              </svg>
+              {vectors.map(({ id, color, center, vector }) => {
+                const start = worldToScreen(center);
+                const end = worldToScreen([
+                  center[0] + vector.vx * VECTOR_DRAW_SCALE,
+                  center[1] + vector.vy * VECTOR_DRAW_SCALE
+                ]);
+                if (!start || !end) return null;
+                const angle = Math.atan2(end.y - start.y, end.x - start.x);
+                return (
+                  <React.Fragment key={id}>
+                    <div
+                      className="vector-base"
+                      style={{ left: `${start.x}px`, top: `${start.y}px`, borderColor: color }}
+                    />
+                    <button
+                      className="vector-handle"
+                      style={{
+                        left: `${end.x}px`,
+                        top: `${end.y}px`,
+                        color,
+                        transform: `translate(-50%, -50%) rotate(${angle}rad)`
+                      }}
+                      onPointerDown={(e) => startVectorDrag(id, e)}
+                      aria-label={`Drag to set galaxy ${id} velocity`}
+                    >
+                      <span className="vector-arrow" />
+                    </button>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          )}
           <div className="scene-badge">
             <div className="scene-title">Galaxy collision lab</div>
             <div className="scene-meta">{status}</div>
@@ -608,6 +946,8 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
             <div>Render: {perfStats.renderFps.toFixed(0)} fps</div>
             <div>Sim: {perfStats.simFps.toFixed(0)} fps ({perfStats.simStepMs.toFixed(2)} ms)</div>
             <div>Upload: {perfStats.uploadMs.toFixed(2)} ms</div>
+            <div>vA: {velocityA.vx.toFixed(2)}, {velocityA.vy.toFixed(2)}</div>
+            <div>vB: {velocityB.vx.toFixed(2)}, {velocityB.vy.toFixed(2)}</div>
           </div>
           <div className="view-actions">
             <button
@@ -619,7 +959,8 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
             </button>
           </div>
           <div className="hint">
-            Drag to pan | Pinch/scroll or use the zoom slider | Total stars: {totalStars.toLocaleString()}
+            Drag to pan | Drag the velocity arrows to set starting vectors | Pinch/scroll or use the zoom slider | Total
+            stars: {totalStars.toLocaleString()}
           </div>
         </div>
       </section>
@@ -683,6 +1024,65 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
                   Stars: {(galaxyA.params.starCount + galaxyA.params.bulgeStarCount).toLocaleString()}
                 </div>
               </div>
+              <div className="velocity-block">
+                <div className="small-label">Velocity vector</div>
+                <div className="field-grid velocity-grid">
+                  <label className="field">
+                    <div className="field-label">
+                      <span className="field-label-text">Speed</span>
+                    </div>
+                    <input
+                      className="input"
+                      type="number"
+                      min={0}
+                      max={MAX_VECTOR_SPEED}
+                      step={0.05}
+                      value={statsA.speed.toFixed(2)}
+                      onChange={(e) => {
+                        const next = parseFloat(e.target.value);
+                        if (Number.isNaN(next)) return;
+                        setVelocityFromPolar("A", clampNumber(next, 0, MAX_VECTOR_SPEED), statsA.angleDeg);
+                      }}
+                    />
+                  </label>
+                  <label className="field">
+                    <div className="field-label">
+                      <span className="field-label-text">Heading (°)</span>
+                    </div>
+                    <input
+                      className="input"
+                      type="number"
+                      min={-360}
+                      max={360}
+                      step={1}
+                      value={Math.round(statsA.angleDeg)}
+                      onChange={(e) => {
+                        const next = parseFloat(e.target.value);
+                        if (Number.isNaN(next)) return;
+                        setVelocityFromPolar("A", statsA.speed, wrapDegrees(next));
+                      }}
+                    />
+                  </label>
+                  <div className="field">
+                    <div className="field-label">
+                      <span className="field-label-text">Components</span>
+                    </div>
+                    <div className="title-status">
+                      vx: {velocityA.vx.toFixed(2)} | vy: {velocityA.vy.toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+                <div className="chip-row" style={{ marginTop: 6 }}>
+                  <button
+                    className="btn ghost"
+                    type="button"
+                    onClick={() => updateVelocity("A", { vx: 0, vy: DEFAULT_VECTOR_SPEED })}
+                  >
+                    Reset vector
+                  </button>
+                  <div className="title-status">Max speed: {MAX_VECTOR_SPEED.toFixed(1)}</div>
+                </div>
+              </div>
             </div>
 
             <div className="section">
@@ -737,6 +1137,65 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
                   Stars: {(galaxyB.params.starCount + galaxyB.params.bulgeStarCount).toLocaleString()}
                 </div>
               </div>
+              <div className="velocity-block">
+                <div className="small-label">Velocity vector</div>
+                <div className="field-grid velocity-grid">
+                  <label className="field">
+                    <div className="field-label">
+                      <span className="field-label-text">Speed</span>
+                    </div>
+                    <input
+                      className="input"
+                      type="number"
+                      min={0}
+                      max={MAX_VECTOR_SPEED}
+                      step={0.05}
+                      value={statsB.speed.toFixed(2)}
+                      onChange={(e) => {
+                        const next = parseFloat(e.target.value);
+                        if (Number.isNaN(next)) return;
+                        setVelocityFromPolar("B", clampNumber(next, 0, MAX_VECTOR_SPEED), statsB.angleDeg);
+                      }}
+                    />
+                  </label>
+                  <label className="field">
+                    <div className="field-label">
+                      <span className="field-label-text">Heading (°)</span>
+                    </div>
+                    <input
+                      className="input"
+                      type="number"
+                      min={-360}
+                      max={360}
+                      step={1}
+                      value={Math.round(statsB.angleDeg)}
+                      onChange={(e) => {
+                        const next = parseFloat(e.target.value);
+                        if (Number.isNaN(next)) return;
+                        setVelocityFromPolar("B", statsB.speed, wrapDegrees(next));
+                      }}
+                    />
+                  </label>
+                  <div className="field">
+                    <div className="field-label">
+                      <span className="field-label-text">Components</span>
+                    </div>
+                    <div className="title-status">
+                      vx: {velocityB.vx.toFixed(2)} | vy: {velocityB.vy.toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+                <div className="chip-row" style={{ marginTop: 6 }}>
+                  <button
+                    className="btn ghost"
+                    type="button"
+                    onClick={() => updateVelocity("B", { vx: 0, vy: -DEFAULT_VECTOR_SPEED })}
+                  >
+                    Reset vector
+                  </button>
+                  <div className="title-status">Max speed: {MAX_VECTOR_SPEED.toFixed(1)}</div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -758,16 +1217,17 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
               </label>
               <label className="field">
                 <div className="field-label">
-                  <span className="field-label-text">Relative speed</span>
+                  <span className="field-label-text">Vector coupling</span>
                 </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={10}
-                  step={0.25}
-                  value={relativeSpeed}
-                  onChange={(e) => setRelativeSpeed(parseFloat(e.target.value))}
-                />
+                <select
+                  className="select"
+                  value={vectorLinkMode}
+                  onChange={(e) => setVectorLinkMode(e.target.value as VectorLinkMode)}
+                >
+                  <option value="mirror">Mirror (equal & opposite)</option>
+                  <option value="match">Match (copy A → B)</option>
+                  <option value="free">Independent</option>
+                </select>
               </label>
               <label className="field">
                 <div className="field-label">
@@ -784,6 +1244,17 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
               </label>
             </div>
             <div className="chip-row" style={{ marginTop: 8 }}>
+              <button className="btn secondary" type="button" onClick={() => applyVelocityPreset("head-on")}>
+                Head-on
+              </button>
+              <button className="btn ghost" type="button" onClick={() => applyVelocityPreset("grazing")}>
+                Grazing pass
+              </button>
+              <button className="btn ghost" type="button" onClick={() => applyVelocityPreset("orbit")}>
+                Orbit attempt
+              </button>
+            </div>
+            <div className="chip-row" style={{ marginTop: 8 }}>
               <div className="title-status">Total stars: {totalStars.toLocaleString()}</div>
               <div className="title-status">Star cap per galaxy: {STAR_CAP_PER_GALAXY.toLocaleString()}</div>
             </div>
@@ -796,6 +1267,41 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function clampVector(vec: VelocityVector, maxMagnitude: number): VelocityVector {
+  const mag = Math.hypot(vec.vx, vec.vy);
+  if (!isFinite(mag)) return { vx: 0, vy: 0 };
+  if (mag <= maxMagnitude) return { vx: vec.vx, vy: vec.vy };
+  const scale = maxMagnitude / Math.max(1e-6, mag);
+  return { vx: vec.vx * scale, vy: vec.vy * scale };
+}
+
+function vectorsEqual(a: VelocityVector, b: VelocityVector) {
+  return Math.abs(a.vx - b.vx) < 1e-4 && Math.abs(a.vy - b.vy) < 1e-4;
+}
+
+function mirrorVector(vec: VelocityVector): VelocityVector {
+  return { vx: -vec.vx, vy: -vec.vy };
+}
+
+function vectorFromPolar(speed: number, angleDeg: number): VelocityVector {
+  const rad = degToRad(angleDeg);
+  return { vx: speed * Math.cos(rad), vy: speed * Math.sin(rad) };
+}
+
+function vectorToPolar(vec: VelocityVector) {
+  const speed = Math.hypot(vec.vx, vec.vy);
+  const angleDeg = wrapDegrees((Math.atan2(vec.vy, vec.vx) * 180) / Math.PI);
+  return { speed, angleDeg };
+}
+
+function makeGalaxyCenters(impactOffset: number): { A: [number, number]; B: [number, number] } {
+  const offset = impactOffset * 0.5;
+  return {
+    A: [-GALAXY_SEPARATION, offset],
+    B: [GALAXY_SEPARATION, -offset]
+  };
 }
 
 function distanceToSlider(distance: number) {
@@ -813,4 +1319,12 @@ function sliderToDistance(value: number) {
 function effectiveMass(params: GalaxyParameters, massScale: number) {
   const base = (params.starCount + params.bulgeStarCount) / 60000;
   return massScale * Math.max(0.5, base);
+}
+
+function wrapDegrees(deg: number) {
+  return ((deg % 360) + 360) % 360;
+}
+
+function degToRad(value: number) {
+  return (value * Math.PI) / 180;
 }

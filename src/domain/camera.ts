@@ -2,8 +2,8 @@ import { mat4, vec3 } from "gl-matrix";
 
 export class Camera {
   yaw = 0.9;
-  pitch = -0.55;
-  distance = 90;
+  pitch = 20;
+  distance = 75;
   target: vec3 = vec3.fromValues(0, 0, 0);
 
   rotate(deltaYaw: number, deltaPitch: number) {
@@ -44,6 +44,10 @@ export class Camera {
     if (typeof distance === "number") {
       this.setDistance(distance);
     }
+  }
+
+  getTarget() {
+    return vec3.clone(this.target);
   }
 
   getViewMatrix(): mat4 {

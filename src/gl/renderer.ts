@@ -56,7 +56,6 @@ export class GalaxyRenderer {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     gl.disable(gl.DEPTH_TEST);
     gl.clearColor(0, 0, 0, 1);
-    gl.enable(gl.PROGRAM_POINT_SIZE);
 
     this.paletteTex = this.createPaletteTexture(buildPalette());
     this.resize();
@@ -182,6 +181,15 @@ export class GalaxyRenderer {
 
   getZoomDistance() {
     return this.camera.getDistance();
+  }
+
+  getCameraState() {
+    return {
+      target: this.camera.getTarget(),
+      distance: this.camera.getDistance(),
+      angles: this.camera.getAngles(),
+      useOrtho: this.useOrtho
+    };
   }
 
   setAngles(yaw: number, pitch: number) {

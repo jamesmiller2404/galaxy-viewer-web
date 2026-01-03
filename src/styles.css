@@ -313,11 +313,67 @@ h1 {
 
 .collision-layout .controls-panel {
   max-height: none;
+  gap: 10px;
+  padding: 14px;
 }
 
 .collision-layout .controls-scroll {
   overflow: visible;
   max-height: none;
+  gap: 10px;
+}
+
+.collision-layout .controls-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.collision-layout .section {
+  padding: 10px;
+  border-radius: 10px;
+}
+
+.collision-layout .section-title {
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+
+.collision-layout .field-grid {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px 10px;
+}
+
+.collision-layout .field {
+  gap: 4px;
+}
+
+.collision-layout .field-label {
+  padding: 6px 8px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+
+.collision-layout .controls-panel .input,
+.collision-layout .controls-panel .select,
+.collision-layout .controls-panel .btn {
+  padding: 8px 10px;
+  font-size: 13px;
+  border-radius: 8px;
+}
+
+.collision-layout .chip-row {
+  gap: 6px;
+}
+
+.collision-layout .velocity-block {
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.collision-layout .title-status {
+  font-size: 13px;
 }
 
 .panel-heading {
@@ -472,6 +528,63 @@ h1 {
   touch-action: none;
 }
 
+.vector-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.vector-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+
+.vector-path {
+  mix-blend-mode: screen;
+}
+
+.vector-base {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--panel-border);
+  background: rgba(0, 0, 0, 0.6);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.vector-handle {
+  position: absolute;
+  width: 28px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+  cursor: grab;
+  transform: translate(-50%, -50%);
+}
+
+.vector-handle:active {
+  cursor: grabbing;
+}
+
+.vector-arrow {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: currentColor;
+  clip-path: polygon(0 50%, 100% 0, 100% 100%);
+  opacity: 0.92;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 10px 18px rgba(0, 0, 0, 0.4);
+}
+
 .scene-badge {
   position: absolute;
   top: 12px;
@@ -526,6 +639,86 @@ h1 {
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.25);
 }
 
+.view-overlay-stack {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  max-width: calc(100% - 24px);
+  pointer-events: none;
+}
+
+.page.is-immersive .view-overlay-stack,
+.canvas-shell.is-immersive .view-overlay-stack,
+.canvas-shell:fullscreen .view-overlay-stack,
+.canvas-shell:-webkit-full-screen .view-overlay-stack {
+  top: calc(env(safe-area-inset-top) + 12px);
+  left: calc(env(safe-area-inset-left) + 12px);
+}
+
+.view-overlay-stack .scene-badge,
+.view-overlay-stack .tilt-chip {
+  position: relative;
+  top: 0;
+  left: 0;
+}
+
+.hud-right {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+  pointer-events: none;
+  max-width: calc(100% - 24px);
+}
+
+.page.is-immersive .hud-right,
+.canvas-shell.is-immersive .hud-right,
+.canvas-shell:fullscreen .hud-right,
+.canvas-shell:-webkit-full-screen .hud-right {
+  top: calc(env(safe-area-inset-top) + 12px);
+  right: calc(env(safe-area-inset-right) + 12px);
+}
+
+.camera-readout-shell {
+  color: var(--text);
+  font-size: 8.5px;
+  line-height: 1.25;
+  pointer-events: none;
+  min-width: 0;
+  text-align: right;
+}
+
+.camera-readout-label {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.camera-readout-grid {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 4px 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.camera-readout-key {
+  color: var(--muted);
+}
+
+.camera-readout-value {
+  text-align: right;
+  font-weight: 700;
+}
+
 .perf-badge {
   position: absolute;
   bottom: 12px;
@@ -540,6 +733,18 @@ h1 {
   display: grid;
   gap: 2px;
   pointer-events: none;
+}
+
+.perf-badge--hud {
+  position: static;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  font-size: 8.5px;
+  line-height: 1.25;
+  text-align: right;
 }
 
 .view-actions {
@@ -772,6 +977,16 @@ h1 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 10px 12px;
+}
+
+.velocity-block {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.velocity-grid .field-label {
+  cursor: default;
 }
 
 .field {
