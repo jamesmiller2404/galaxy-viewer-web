@@ -173,6 +173,8 @@ export default function App() {
     try {
       renderer.init();
       renderer.resize();
+      const { yaw } = renderer.getAngles();
+      renderer.setAngles(yaw, degToRad(-10));
       setRendererReady(true);
       syncCameraReadout();
     } catch (error) {
@@ -491,6 +493,13 @@ export default function App() {
     if (!preset) return;
     setPresetName(name);
     setParams(applyMobileStarLimit(preset, isMobile));
+    const renderer = rendererRef.current;
+    if (renderer) {
+      const { yaw } = renderer.getAngles();
+      renderer.setAngles(yaw, degToRad(-10));
+      tiltOrigin.current = null;
+      syncCameraReadout();
+    }
   };
 
   const surpriseMe = () => {
