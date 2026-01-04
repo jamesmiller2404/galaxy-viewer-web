@@ -14,8 +14,8 @@ const nebulaThemeVars: Record<string, string> = {
   "--accent-2": "#5eead4",
   "--text": "#e5e7eb",
   "--muted": "#9ca3af",
-  "--input": "#0f172a",
-  "--input-border": "#1f2937",
+  "--input": "#212f55ff",
+  "--input-border": "#000000ff",
   "--glow": "rgba(255, 140, 90, 0.24)"
 };
 
@@ -650,15 +650,17 @@ export default function App() {
 
         {!fullscreenMode && (
           <section className="panel controls-panel is-open">
-            <div className="controls-header">
-              <div className="controls-heading">
-                <div className="panel-heading">Controls</div>
-              </div>
-            </div>
             <div className="controls-scroll">
               <div className="preset-bar">
                 <label className="preset-label" htmlFor="preset-select">
-                  Preset
+                  <span className="preset-label-text">
+                    Galaxy
+                    <br />
+                    Presets
+                  </span>
+                  <span className="preset-arrow" aria-hidden="true">
+                    →
+                  </span>
                 </label>
                 <select
                   id="preset-select"

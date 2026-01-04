@@ -478,14 +478,38 @@ h1 {
 }
 
 .preset-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
+  font-weight: 700;
+  color: var(--text);
 }
 
 .preset-bar .select {
   flex: 1 1 220px;
   min-width: 220px;
+  background: var(--input);
+  border-color: var(--input-border);
+}
+
+.preset-bar .select option {
+  background: var(--input);
+  color: var(--text);
+}
+
+.preset-label-text {
+  line-height: 1.1;
+}
+
+.preset-arrow {
+  color: var(--accent);
+  font-weight: 900;
+  font-size: 25px;
+  line-height: 2;
+  transform: scaleY(1.25);
+  display: inline-flex;
+  align-items: center;
 }
 
 .mode-toggle-footer {
