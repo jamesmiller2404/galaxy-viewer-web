@@ -24,6 +24,8 @@ const VELOCITY_HANDLE_SCALE = 12;
 const MAX_VECTOR_SPEED = 12;
 const VECTOR_DRAW_SCALE = VELOCITY_HANDLE_SCALE;
 const DEFAULT_VECTOR_SPEED = 1.5;
+const GALAXY_A_COLOR = "#ff4d4d";
+const GALAXY_B_COLOR = "#4da3ff";
 
 type GalaxySelection = {
   name: string;
@@ -91,14 +93,14 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
 
   const [galaxyA, setGalaxyA] = useState<GalaxySelection>(() => {
     const base = makeGalaxyInstance("Andromeda (M31)", capForCollision(resolvePreset("Andromeda (M31)")), {
-      color: "#ff9f6d",
+      color: GALAXY_A_COLOR,
       massScale: 1
     });
     return { ...base };
   });
   const [galaxyB, setGalaxyB] = useState<GalaxySelection>(() => {
     const base = makeGalaxyInstance("Spiral (Sa)", capForCollision(resolvePreset("Spiral (Sa)")), {
-      color: "#7bd8ff",
+      color: GALAXY_B_COLOR,
       massScale: 1
     });
     return { ...base };
@@ -629,7 +631,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
   const setFromPreset = (target: "A" | "B", name: string) => {
     const presetParams = capForCollision(findPreset(name) ?? resolvePreset(name));
     const next = makeGalaxyInstance(name, presetParams, {
-      color: target === "A" ? "#ff9f6d" : "#7bd8ff",
+      color: target === "A" ? GALAXY_A_COLOR : GALAXY_B_COLOR,
       massScale: 1
     });
     if (target === "A") setGalaxyA({ ...next });
@@ -638,7 +640,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
 
   const useCurrentParams = (target: "A" | "B") => {
     const next = makeGalaxyInstance("My galaxy", capForCollision(currentParams), {
-      color: target === "A" ? "#ff9f6d" : "#7bd8ff",
+      color: target === "A" ? GALAXY_A_COLOR : GALAXY_B_COLOR,
       massScale: 1
     });
     if (target === "A") setGalaxyA(next);
@@ -966,14 +968,15 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
       </section>
 
       <section className="panel controls-panel">
-        <div className="panel-heading-row">
-          <div className="panel-heading">Setup</div>
-          <div className="title-status">{loading ? "Generating..." : "Ready"}</div>
-        </div>
         <div className="controls-scroll">
           <div className="controls-grid">
             <div className="section">
-              <div className="section-title">Galaxy A</div>
+              <div
+                className="section-title chip-label"
+                style={{ backgroundColor: GALAXY_A_COLOR, borderColor: GALAXY_A_COLOR, color: "#fff" }}
+              >
+                Galaxy A
+              </div>
               <div className="field-grid">
                 <label className="field">
                   <div className="field-label">
@@ -1086,7 +1089,12 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
             </div>
 
             <div className="section">
-              <div className="section-title">Galaxy B</div>
+              <div
+                className="section-title chip-label"
+                style={{ backgroundColor: GALAXY_B_COLOR, borderColor: GALAXY_B_COLOR, color: "#fff" }}
+              >
+                Galaxy B
+              </div>
               <div className="field-grid">
                 <label className="field">
                   <div className="field-label">

@@ -15,6 +15,9 @@ export type CollisionSetup = {
   relativeSpeed: number;
 };
 
+const DEFAULT_COLOR_A = "#ff4d4d";
+const DEFAULT_COLOR_B = "#4da3ff";
+
 export function makeGalaxyInstance(
   name: string,
   params: GalaxyParameters,
@@ -65,8 +68,8 @@ export function defaultCollisionSetup(): CollisionSetup {
   const andromeda = capGalaxyStars(resolvePreset("Andromeda (M31)"), cap);
   const spiral = capGalaxyStars(resolvePreset("Spiral (Sa)"), cap);
   return {
-    galaxyA: makeGalaxyInstance("Andromeda (M31)", andromeda, { color: "#ff9f6d", massScale: 1 }),
-    galaxyB: makeGalaxyInstance("Spiral (Sa)", spiral, { color: "#7bd8ff", massScale: 1 }),
+    galaxyA: makeGalaxyInstance("Andromeda (M31)", andromeda, { color: DEFAULT_COLOR_A, massScale: 1 }),
+    galaxyB: makeGalaxyInstance("Spiral (Sa)", spiral, { color: DEFAULT_COLOR_B, massScale: 1 }),
     impactOffset: 18,
     relativeSpeed: 1.5
   };

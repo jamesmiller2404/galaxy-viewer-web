@@ -590,8 +590,7 @@ export default function App() {
       <div className="layout">
         <section className={`panel viewport-panel ${fullscreenMode ? "is-immersive" : ""}`}>
           {!fullscreenMode && (
-            <div className="panel-heading-row">
-              <div className="panel-heading">Viewport</div>
+            <div className="viewport-toolbar">
               <button
                 className={`icon-btn help-btn ${helpOpen ? "is-active" : ""}`}
                 type="button"
@@ -602,10 +601,6 @@ export default function App() {
               >
                 ?
               </button>
-            </div>
-          )}
-          {!fullscreenMode && (
-            <div className="viewport-toolbar">
               <button className="fullscreen-btn" onClick={toggleFullscreenMode} type="button">
                 Full Screen
               </button>
@@ -658,58 +653,29 @@ export default function App() {
             <div className="controls-header">
               <div className="controls-heading">
                 <div className="panel-heading">Controls</div>
-                <div className="chip-row heading-actions">
-                  <div className="mode-toggle" role="tablist" aria-label="Control mode">
-                    <button
-                      className={`mode-tab ${controlMode === "explore" ? "is-active" : ""}`}
-                      role="tab"
-                      aria-selected={controlMode === "explore"}
-                      onClick={() => setControlMode("explore")}
-                      type="button"
-                    >
-                      Explore
-                    </button>
-                    <button
-                      className={`mode-tab ${controlMode === "advanced" ? "is-active" : ""}`}
-                      role="tab"
-                      aria-selected={controlMode === "advanced"}
-                      onClick={() => setControlMode("advanced")}
-                      type="button"
-                    >
-                      Advanced
-                    </button>
-                  </div>
-                </div>
-                </div>
-                <div className="controls-meta">
-                  <div className="stack">
-                    <label className="small-label">Preset</label>
-                    <select
-                    value={presetName}
-                    onChange={(e) => loadPreset(e.target.value)}
-                    className="select"
-                    >
-                      {presetOptions.map((name) => (
-                        <option key={name}>{name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
               </div>
-              <div className="controls-scroll">
+            </div>
+            <div className="controls-scroll">
+              <div className="preset-bar">
+                <label className="preset-label" htmlFor="preset-select">
+                  Preset
+                </label>
+                <select
+                  id="preset-select"
+                  value={presetName}
+                  onChange={(e) => loadPreset(e.target.value)}
+                  className="select"
+                >
+                  {presetOptions.map((name) => (
+                    <option key={name}>{name}</option>
+                  ))}
+                </select>
+                <button className="btn primary" onClick={surpriseMe}>
+                  Random Galaxy
+                </button>
+              </div>
               {controlMode === "explore" ? (
                 <>
-                  <div className="play-hero">
-                    <div className="play-hero-copy">
-                      <div className="eyebrow">Explore mode</div>
-                    </div>
-                    <div className="chip-row">
-                      <button className="btn primary" onClick={surpriseMe}>
-                        Random Galaxy
-                      </button>
-                    </div>
-                  </div>
-
                   <div className="preset-card-grid">
                     {featuredPresets.map((card) => (
                       <button
@@ -723,7 +689,6 @@ export default function App() {
                           <div className="preset-title">{card.title}</div>
                           <div className="preset-blurb">{card.blurb}</div>
                         </div>
-                        <div className="preset-chip">Load {card.preset}</div>
                       </button>
                     ))}
                   </div>
@@ -961,6 +926,28 @@ export default function App() {
                   </div>
                 </>
               )}
+              <div className="mode-toggle-footer">
+                <div className="mode-toggle" role="tablist" aria-label="Control mode">
+                  <button
+                    className={`mode-tab ${controlMode === "explore" ? "is-active" : ""}`}
+                    role="tab"
+                    aria-selected={controlMode === "explore"}
+                    onClick={() => setControlMode("explore")}
+                    type="button"
+                  >
+                    Explore
+                  </button>
+                  <button
+                    className={`mode-tab ${controlMode === "advanced" ? "is-active" : ""}`}
+                    role="tab"
+                    aria-selected={controlMode === "advanced"}
+                    onClick={() => setControlMode("advanced")}
+                    type="button"
+                  >
+                    Advanced
+                  </button>
+                </div>
+              </div>
             </div>
           </section>
         )}
