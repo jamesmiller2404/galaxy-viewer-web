@@ -696,6 +696,7 @@ export default function App() {
                   </div>
 
                   <div className="play-controls">
+                    <div className="play-controls-label">Customize Galaxy Parameters</div>
                     <PlaySlider
                       label="Glow"
                       description="Overall brightness and energy."

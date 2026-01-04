@@ -1083,6 +1083,22 @@ h1 {
   margin-top: 6px;
 }
 
+.play-controls-label {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 140, 90, 0.16);
+  color: var(--accent);
+  border: 1px solid rgba(255, 140, 90, 0.4);
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  box-shadow: 0 8px 20px rgba(255, 140, 90, 0.18);
+}
+
 .play-slider {
   display: grid;
   gap: 8px;
