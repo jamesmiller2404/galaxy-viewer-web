@@ -5,6 +5,7 @@
   --panel-border: #1f2937;
   --accent: #ff8c5a;
   --accent-2: #5eead4;
+  --sky: #38bdf8;
   --text: #e5e7eb;
   --muted: #9ca3af;
   --input: #0f172a;
@@ -64,6 +65,37 @@ body {
   font-size: 13px;
   line-height: 1.2;
   border-radius: 8px;
+}
+
+.title-actions .collision-cta {
+  display: inline-flex;
+  align-items: center;
+}
+
+.title-actions .collision-cta.secondary {
+  background: linear-gradient(120deg, rgba(255, 140, 90, 0.95), rgba(94, 234, 212, 0.9));
+  color: #0a0f1b;
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35), 0 0 16px rgba(255, 140, 90, 0.35);
+  font-weight: 700;
+}
+
+.collision-cta .cta-badge {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .title-actions .collision-cta.secondary {
+    animation: pulse 2.4s ease-in-out infinite;
+  }
 }
 
 .cta-row {
@@ -579,6 +611,16 @@ h1 {
   margin-bottom: 6px;
 }
 
+.collision-layout .viewport-toolbar {
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+
+.collision-layout .viewport-toolbar .zoom-controls {
+  min-width: 240px;
+  flex: 1 1 260px;
+}
+
 .canvas-shell {
   border: 1px solid var(--panel-border);
   border-radius: 12px;
@@ -634,6 +676,7 @@ h1 {
   color: var(--accent);
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45);
   pointer-events: auto;
+  touch-action: none;
   cursor: grab;
   transform: translate(-50%, -50%);
 }
@@ -919,6 +962,10 @@ h1 {
   color: var(--muted);
 }
 
+.sky-label {
+  color: var(--sky);
+}
+
 .select,
 .input,
 .btn {
@@ -1087,16 +1134,16 @@ h1 {
   justify-self: start;
   display: inline-flex;
   align-items: center;
-  padding: 6px 12px;
+  padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(255, 140, 90, 0.16);
-  color: var(--accent);
-  border: 1px solid rgba(255, 140, 90, 0.4);
-  font-weight: 800;
-  font-size: 12px;
-  letter-spacing: 0.05em;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--sky);
+  border: 1px solid var(--panel-border);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  box-shadow: 0 8px 20px rgba(255, 140, 90, 0.18);
+  box-shadow: none;
 }
 
 .play-slider {
@@ -1252,6 +1299,16 @@ h1 {
   .viewport-toolbar {
     flex-wrap: wrap;
     gap: 8px;
+  }
+
+  .collision-layout .viewport-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+
+  .collision-layout .viewport-toolbar .zoom-controls {
+    width: 100%;
   }
 
   .title-banner {

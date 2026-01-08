@@ -12,6 +12,7 @@ const nebulaThemeVars: Record<string, string> = {
   "--panel-border": "#1f2937",
   "--accent": "#ff8c5a",
   "--accent-2": "#5eead4",
+  "--sky": "#38bdf8",
   "--text": "#e5e7eb",
   "--muted": "#9ca3af",
   "--input": "#212f55ff",
@@ -557,11 +558,12 @@ export default function App() {
               Explorer
             </button>
             <button
-              className={`btn ${viewMode === "collision" ? "primary" : "secondary"}`}
+              className={`btn collision-cta ${viewMode === "collision" ? "primary" : "secondary"}`}
               type="button"
               onClick={enterCollisionMode}
             >
-              Collision Lab
+              Collision Lab{" "}
+              <span className="cta-badge">New</span>
             </button>
           </div>
         </header>
@@ -678,21 +680,24 @@ export default function App() {
               </div>
               {controlMode === "explore" ? (
                 <>
-                  <div className="preset-card-grid">
-                    {featuredPresets.map((card) => (
-                      <button
-                        key={card.title}
-                        className="preset-card"
-                        type="button"
-                        onClick={() => loadPreset(card.preset)}
-                      >
-                        <div className="preset-card-top">
-                          <div className="preset-tag">{card.tag}</div>
-                          <div className="preset-title">{card.title}</div>
-                          <div className="preset-blurb">{card.blurb}</div>
-                        </div>
-                      </button>
-                    ))}
+                  <div className="stack">
+                    <div className="small-label sky-label">Featured Galaxy Presets</div>
+                    <div className="preset-card-grid">
+                      {featuredPresets.map((card) => (
+                        <button
+                          key={card.title}
+                          className="preset-card"
+                          type="button"
+                          onClick={() => loadPreset(card.preset)}
+                        >
+                          <div className="preset-card-top">
+                            <div className="preset-tag">{card.tag}</div>
+                            <div className="preset-title">{card.title}</div>
+                            <div className="preset-blurb">{card.blurb}</div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   <div className="play-controls">
