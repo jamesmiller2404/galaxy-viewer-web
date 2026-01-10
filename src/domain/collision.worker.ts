@@ -21,13 +21,21 @@ type InitPayload = {
 type GalaxyInit = {
   params: GalaxyParameters;
   mass: number;
+  bhMass: number;
   center: [number, number];
   velocity: [number, number];
   seed: number;
 };
 
 type Outbound =
-  | { type: "frame"; positions: ArrayBufferLike; countA: number; countB: number; shared: boolean }
+  | {
+      type: "frame";
+      positions: ArrayBufferLike;
+      countA: number;
+      countB: number;
+      shared: boolean;
+      centers: [number, number, number, number];
+    }
   | { type: "stats"; stepMs: number; simFps: number }
   | { type: "ready"; count: number }
   | { type: "error"; message: string };
@@ -37,6 +45,8 @@ const ctx: DedicatedWorkerGlobalScope = self as unknown as DedicatedWorkerGlobal
 const useSharedBuffer =
   typeof SharedArrayBuffer !== "undefined" &&
   (self as unknown as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
+const BH_SOFTENING_SCALE = 0.25;
+const BH_SOFTENING_MIN = 0.4;
 
 let positions: Float32Array | null = null;
 let positionsBuffer: ArrayBufferLike | null = null;
@@ -49,8 +59,9 @@ let timeScale = 1;
 let substeps = 1;
 let gConst = 1;
 let softening = 1;
-let c1 = { x: 0, y: 0, vx: 0, vy: 0, mass: 1 };
-let c2 = { x: 0, y: 0, vx: 0, vy: 0, mass: 1 };
+let bhSoftening = 1;
+let c1 = { x: 0, y: 0, vx: 0, vy: 0, mass: 1, bhMass: 0 };
+let c2 = { x: 0, y: 0, vx: 0, vy: 0, mass: 1, bhMass: 0 };
 let timer: number | null = null;
 let timerIntervalMs = 16;
 let accumStepMs = 0;
@@ -95,6 +106,7 @@ function init(payload: InitPayload) {
   timeScale = Math.max(0.05, payload.timeScale || 1);
   substeps = Math.max(1, Math.floor(payload.substeps));
   softening = payload.softening;
+  bhSoftening = Math.max(BH_SOFTENING_MIN, softening * BH_SOFTENING_SCALE);
   gConst = payload.gConst;
   const [gA, gB] = payload.galaxies;
   countA = Math.max(0, Math.floor(gA.params.starCount + gA.params.bulgeStarCount));
@@ -112,14 +124,16 @@ function init(payload: InitPayload) {
     y: gA.center[1],
     vx: gA.velocity[0],
     vy: gA.velocity[1],
-    mass: gA.mass
+    mass: gA.mass,
+    bhMass: gA.bhMass
   };
   c2 = {
     x: gB.center[0],
     y: gB.center[1],
     vx: gB.velocity[0],
     vy: gB.velocity[1],
-    mass: gB.mass
+    mass: gB.mass,
+    bhMass: gB.bhMass
   };
 
   seedGalaxy(gA, 0);
@@ -159,11 +173,11 @@ function seedGalaxy(galaxy: GalaxyInit, offset: number) {
     positions[idx * 2 + 1] = galaxy.center[1] + y;
 
     // Circular velocity from self potential
-    const accelMag = radialAccel(radius, galaxy.mass);
+    const accelMag = radialAccel(radius, galaxy.mass, softening) + radialAccel(radius, galaxy.bhMass, bhSoftening);
     const vCirc = Math.sqrt(Math.max(0, radius * accelMag));
     const jitter = 0.05 * vCirc;
-    const vx = -Math.sin(angle) * (vCirc + jitter * (rand() - 0.5));
-    const vy = Math.cos(angle) * (vCirc + jitter * (rand() - 0.5));
+    const vx = Math.sin(angle) * (vCirc + jitter * (rand() - 0.5));
+    const vy = -Math.cos(angle) * (vCirc + jitter * (rand() - 0.5));
     velocities[idx * 2] = galaxy.velocity[0] + vx;
     velocities[idx * 2 + 1] = galaxy.velocity[1] + vy;
   }
@@ -188,10 +202,10 @@ function seedGalaxy(galaxy: GalaxyInit, offset: number) {
     positions[idx * 2] = galaxy.center[0] + x;
     positions[idx * 2 + 1] = galaxy.center[1] + y;
 
-    const accelMag = radialAccel(radius, galaxy.mass);
+    const accelMag = radialAccel(radius, galaxy.mass, softening) + radialAccel(radius, galaxy.bhMass, bhSoftening);
     const vCirc = 0.25 * Math.sqrt(Math.max(0, radius * accelMag));
-    const vx = -Math.sin(angle) * vCirc;
-    const vy = Math.cos(angle) * vCirc;
+    const vx = Math.sin(angle) * vCirc;
+    const vy = -Math.cos(angle) * vCirc;
     velocities[idx * 2] = galaxy.velocity[0] + vx;
     velocities[idx * 2 + 1] = galaxy.velocity[1] + vy;
   }
@@ -228,11 +242,13 @@ function stepFrame() {
     // Center-center interaction
     const dirCX = c2.x - c1.x;
     const dirCY = c2.y - c1.y;
-    const invDist3C = invDistCube(dirCX, dirCY);
-    const axC1 = gConst * c2.mass * dirCX * invDist3C;
-    const ayC1 = gConst * c2.mass * dirCY * invDist3C;
-    const axC2 = gConst * c1.mass * dirCX * invDist3C;
-    const ayC2 = gConst * c1.mass * dirCY * invDist3C;
+    const invDist3C = invDistCube(dirCX, dirCY, softening);
+    const totalMass1 = c1.mass + c1.bhMass;
+    const totalMass2 = c2.mass + c2.bhMass;
+    const axC1 = gConst * totalMass2 * dirCX * invDist3C;
+    const ayC1 = gConst * totalMass2 * dirCY * invDist3C;
+    const axC2 = gConst * totalMass1 * dirCX * invDist3C;
+    const ayC2 = gConst * totalMass1 * dirCY * invDist3C;
     c1.vx += axC1 * subDt;
     c1.vy += ayC1 * subDt;
     c2.vx -= axC2 * subDt;
@@ -277,39 +293,47 @@ function updateTimeScale(value: number) {
 function postFrame() {
   if (!positions || !positionsBuffer) return;
   const shared = useSharedBuffer;
+  const centers: [number, number, number, number] = [c1.x, c1.y, c2.x, c2.y];
   if (shared) {
-    ctx.postMessage({ type: "frame", positions: positionsBuffer, countA, countB, shared } satisfies Outbound);
+    ctx.postMessage({ type: "frame", positions: positionsBuffer, countA, countB, shared, centers } satisfies Outbound);
     return;
   }
   // In non-shared mode, clone so the worker keeps ownership for the next frame.
   const clone = (positionsBuffer as ArrayBuffer).slice(0);
-  ctx.postMessage({ type: "frame", positions: clone, countA, countB, shared } satisfies Outbound);
+  ctx.postMessage({ type: "frame", positions: clone, countA, countB, shared, centers } satisfies Outbound);
 }
 
 function totalAccel(x: number, y: number) {
-  const ax1 = accelFrom(c1.x, c1.y, c1.mass, x, y, gConst);
-  const ax2 = accelFrom(c2.x, c2.y, c2.mass, x, y, gConst);
-  return { ax: ax1.ax + ax2.ax, ay: ax1.ay + ax2.ay };
+  const ax1 = accelFrom(c1.x, c1.y, c1.mass, x, y, gConst, softening);
+  const ax1bh = accelFrom(c1.x, c1.y, c1.bhMass, x, y, gConst, bhSoftening);
+  const ax2 = accelFrom(c2.x, c2.y, c2.mass, x, y, gConst, softening);
+  const ax2bh = accelFrom(c2.x, c2.y, c2.bhMass, x, y, gConst, bhSoftening);
+  return {
+    ax: ax1.ax + ax1bh.ax + ax2.ax + ax2bh.ax,
+    ay: ax1.ay + ax1bh.ay + ax2.ay + ax2bh.ay
+  };
 }
 
-function accelFrom(cx: number, cy: number, mass: number, x: number, y: number, G: number) {
+function accelFrom(cx: number, cy: number, mass: number, x: number, y: number, G: number, soft: number) {
+  if (!mass) return { ax: 0, ay: 0 };
   const rx = x - cx;
   const ry = y - cy;
-  const inv = invDistCube(rx, ry);
+  const inv = invDistCube(rx, ry, soft);
   return {
     ax: -G * mass * rx * inv,
     ay: -G * mass * ry * inv
   };
 }
 
-function invDistCube(dx: number, dy: number) {
-  const dist2 = dx * dx + dy * dy + softening * softening;
+function invDistCube(dx: number, dy: number, soft: number) {
+  const dist2 = dx * dx + dy * dy + soft * soft;
   const invDist = 1 / Math.sqrt(dist2);
   return invDist * invDist * invDist;
 }
 
-function radialAccel(r: number, mass: number) {
-  const denom = Math.pow(r * r + softening * softening, 1.5);
+function radialAccel(r: number, mass: number, soft: number) {
+  if (!mass) return 0;
+  const denom = Math.pow(r * r + soft * soft, 1.5);
   if (!denom) return 0;
   return (gConst * mass * r) / denom;
 }

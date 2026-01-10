@@ -1,7 +1,7 @@
 import { mat4 } from "gl-matrix";
 import { Camera } from "@domain/camera";
-import { fragmentSource, vertexSource } from "./shaders";
-import { StarBuffer } from "@domain/parameters";
+import { blackHoleFragmentSource, blackHoleVertexSource, fragmentSource, vertexSource } from "./shaders";
+import { BlackHoleBuffer, StarBuffer } from "@domain/parameters";
 
 export class GalaxyRenderer {
   private gl: WebGL2RenderingContext;
@@ -17,8 +17,21 @@ export class GalaxyRenderer {
   private uProjection!: WebGLUniformLocation;
   private uPalette!: WebGLUniformLocation;
   private uStarSizeScale!: WebGLUniformLocation;
+  private bhProgram!: WebGLProgram;
+  private bhVao!: WebGLVertexArrayObject;
+  private bhVbo!: WebGLBuffer;
+  private uBhModel!: WebGLUniformLocation;
+  private uBhView!: WebGLUniformLocation;
+  private uBhProjection!: WebGLUniformLocation;
+  private uBhSize!: WebGLUniformLocation;
+  private uBhRingWidth!: WebGLUniformLocation;
+  private uBhRingBrightness!: WebGLUniformLocation;
   private starCount = 0;
   private starSizeScale = 1;
+  private bhCount = 0;
+  private bhSize = 5;
+  private bhRingWidth = 0.18;
+  private bhRingBrightness = 1.4;
   private camera = new Camera();
   private model = mat4.create();
 
@@ -52,6 +65,25 @@ export class GalaxyRenderer {
 
     gl.bindVertexArray(null);
 
+    this.bhProgram = this.createProgram(blackHoleVertexSource, blackHoleFragmentSource);
+    this.uBhModel = gl.getUniformLocation(this.bhProgram, "uModel")!;
+    this.uBhView = gl.getUniformLocation(this.bhProgram, "uView")!;
+    this.uBhProjection = gl.getUniformLocation(this.bhProgram, "uProjection")!;
+    this.uBhSize = gl.getUniformLocation(this.bhProgram, "uBhSize")!;
+    this.uBhRingWidth = gl.getUniformLocation(this.bhProgram, "uBhRingWidth")!;
+    this.uBhRingBrightness = gl.getUniformLocation(this.bhProgram, "uBhRingBrightness")!;
+
+    this.bhVao = gl.createVertexArray()!;
+    this.bhVbo = gl.createBuffer()!;
+    gl.bindVertexArray(this.bhVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.bhVbo);
+    const bhStride = 6 * 4;
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, bhStride, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 3, gl.FLOAT, false, bhStride, 3 * 4);
+    gl.bindVertexArray(null);
+
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     gl.disable(gl.DEPTH_TEST);
@@ -75,6 +107,35 @@ export class GalaxyRenderer {
     const gl = this.gl;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
     gl.bufferSubData(gl.ARRAY_BUFFER, 0, data);
+    this.render();
+  }
+
+  setBlackHoles(buffer: BlackHoleBuffer, renderNow = true) {
+    this.bhCount = Math.max(0, buffer.count);
+    if (this.bhCount > 0) {
+      const gl = this.gl;
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.bhVbo);
+      gl.bufferData(gl.ARRAY_BUFFER, buffer.data, gl.DYNAMIC_DRAW);
+    }
+    if (renderNow) {
+      this.render();
+    }
+  }
+
+  updateBlackHoles(data: Float32Array, renderNow = true) {
+    if (this.bhCount === 0) return;
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.bhVbo);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, data);
+    if (renderNow) {
+      this.render();
+    }
+  }
+
+  setBlackHoleStyle(style: { size: number; ringWidth: number; ringBrightness: number }) {
+    this.bhSize = clamp(style.size, 0.5, 12);
+    this.bhRingWidth = clamp(style.ringWidth, 0.04, 0.6);
+    this.bhRingBrightness = clamp(style.ringBrightness, 0.1, 3);
     this.render();
   }
 
@@ -128,12 +189,13 @@ export class GalaxyRenderer {
   render() {
     const { gl } = this;
     gl.clear(gl.COLOR_BUFFER_BIT);
-    gl.useProgram(this.program);
 
     const aspect = this.canvas.width / Math.max(1, this.canvas.height);
     const view = this.camera.getViewMatrix();
     const projection = this.useOrtho ? this.camera.getOrthoMatrix(aspect) : this.camera.getProjectionMatrix(aspect);
 
+    gl.useProgram(this.program);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     gl.uniformMatrix4fv(this.uProjection, false, projection);
     gl.uniform1f(this.uStarSizeScale, clamp(this.starSizeScale, 0, 1));
 
@@ -143,14 +205,18 @@ export class GalaxyRenderer {
 
     if (this.mode === "multi") {
       this.renderMulti(view);
-      return;
+    } else {
+      gl.uniformMatrix4fv(this.uModel, false, this.model);
+      gl.uniformMatrix4fv(this.uView, false, view);
+      gl.bindVertexArray(this.vao);
+      gl.drawArrays(gl.POINTS, 0, this.starCount);
+      gl.bindVertexArray(null);
     }
 
-    gl.uniformMatrix4fv(this.uModel, false, this.model);
-    gl.uniformMatrix4fv(this.uView, false, view);
-    gl.bindVertexArray(this.vao);
-    gl.drawArrays(gl.POINTS, 0, this.starCount);
-    gl.bindVertexArray(null);
+    if (this.bhCount > 0) {
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      this.renderBlackHoles(view, projection);
+    }
   }
 
   private renderMulti(view: mat4) {
@@ -161,6 +227,20 @@ export class GalaxyRenderer {
       gl.bindVertexArray(galaxy.vao);
       gl.drawArrays(gl.POINTS, 0, galaxy.count);
     }
+    gl.bindVertexArray(null);
+  }
+
+  private renderBlackHoles(view: mat4, projection: mat4) {
+    const gl = this.gl;
+    gl.useProgram(this.bhProgram);
+    gl.uniformMatrix4fv(this.uBhModel, false, this.model);
+    gl.uniformMatrix4fv(this.uBhView, false, view);
+    gl.uniformMatrix4fv(this.uBhProjection, false, projection);
+    gl.uniform1f(this.uBhSize, this.bhSize);
+    gl.uniform1f(this.uBhRingWidth, this.bhRingWidth);
+    gl.uniform1f(this.uBhRingBrightness, this.bhRingBrightness);
+    gl.bindVertexArray(this.bhVao);
+    gl.drawArrays(gl.POINTS, 0, this.bhCount);
     gl.bindVertexArray(null);
   }
 
@@ -227,8 +307,11 @@ export class GalaxyRenderer {
   dispose() {
     const gl = this.gl;
     gl.deleteProgram(this.program);
+    gl.deleteProgram(this.bhProgram);
     gl.deleteBuffer(this.vbo);
+    gl.deleteBuffer(this.bhVbo);
     gl.deleteVertexArray(this.vao);
+    gl.deleteVertexArray(this.bhVao);
     gl.deleteTexture(this.paletteTex);
     this.disposeGalaxyDraws();
   }

@@ -14,6 +14,9 @@ export interface GalaxyParameters {
   bulgeFalloff: number;
   bulgeVerticalScale: number;
   bulgeBrightness: number;
+  bhRadius: number;
+  bhRingWidth: number;
+  bhRingBrightness: number;
 }
 
 export const defaultParameters: GalaxyParameters = {
@@ -31,11 +34,20 @@ export const defaultParameters: GalaxyParameters = {
   bulgeStarCount: 50000,
   bulgeFalloff: 2.3,
   bulgeVerticalScale: 3.0,
-  bulgeBrightness: 3.4
+  bulgeBrightness: 3.4,
+  bhRadius: 5.0,
+  bhRingWidth: 0.18,
+  bhRingBrightness: 1.4
 };
 
 export interface StarBuffer {
   /** interleaved xyz,intensity,colorIndex01 */
+  data: Float32Array;
+  count: number;
+}
+
+export interface BlackHoleBuffer {
+  /** interleaved xyz,rgb */
   data: Float32Array;
   count: number;
 }

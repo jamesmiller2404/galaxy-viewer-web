@@ -26,11 +26,20 @@ const VECTOR_DRAW_SCALE = VELOCITY_HANDLE_SCALE;
 const DEFAULT_VECTOR_SPEED = 1.5;
 const GALAXY_A_COLOR = "#ff4d4d";
 const GALAXY_B_COLOR = "#4da3ff";
+const BH_MASS_LOG_MIN = 6;
+const BH_MASS_LOG_MAX = 10;
+const BH_MASS_LOG_STEP = 0.02;
+const BH_MASS_SOLAR_MIN = Math.pow(10, BH_MASS_LOG_MIN);
+const BH_MASS_SOLAR_MAX = Math.pow(10, BH_MASS_LOG_MAX);
+const DEFAULT_BH_MASS_SOLAR = 1e8;
+// Rough mapping for collision dynamics (visual scale, not astrophysical).
+const SOLAR_MASS_PER_SIM_UNIT = 5e10;
 
 type GalaxySelection = {
   name: string;
   params: GalaxyParameters;
   massScale: number;
+  bhMassSolar: number;
   color: string;
 };
 
@@ -54,7 +63,14 @@ type Props = {
 
 type WorkerMessage =
   | { type: "ready"; count: number }
-  | { type: "frame"; positions: ArrayBufferLike; countA: number; countB: number; shared: boolean }
+  | {
+      type: "frame";
+      positions: ArrayBufferLike;
+      countA: number;
+      countB: number;
+      shared: boolean;
+      centers: [number, number, number, number];
+    }
   | { type: "stats"; stepMs: number; simFps: number }
   | { type: "error"; message: string };
 
@@ -66,9 +82,11 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
   const rendererRef = useRef<GalaxyRenderer | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const baseBufferRef = useRef<Float32Array | null>(null);
+  const bhBufferRef = useRef<Float32Array | null>(null);
   const starCountRef = useRef(0);
   const latestFrameRef = useRef<
-    { positions: ArrayBufferLike; countA: number; countB: number; shared: boolean } | null
+    { positions: ArrayBufferLike; countA: number; countB: number; shared: boolean; centers: [number, number, number, number] }
+      | null
   >(null);
   const framePendingRef = useRef(false);
   const rafIdRef = useRef<number | null>(null);
@@ -89,6 +107,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     useOrtho: true
   });
   const [fullscreenMode, setFullscreenMode] = useState(false);
+  const [controlsOpen, setControlsOpen] = useState(!isMobile);
   const [perfStats, setPerfStats] = useState({ renderFps: 0, uploadMs: 0, simFps: 0, simStepMs: 0 });
 
   const [galaxyA, setGalaxyA] = useState<GalaxySelection>(() => {
@@ -96,18 +115,22 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
       color: GALAXY_A_COLOR,
       massScale: 1
     });
-    return { ...base };
+    return { ...base, bhMassSolar: DEFAULT_BH_MASS_SOLAR };
   });
   const [galaxyB, setGalaxyB] = useState<GalaxySelection>(() => {
     const base = makeGalaxyInstance("Spiral (Sa)", capForCollision(resolvePreset("Spiral (Sa)")), {
       color: GALAXY_B_COLOR,
       massScale: 1
     });
-    return { ...base };
+    return { ...base, bhMassSolar: DEFAULT_BH_MASS_SOLAR };
   });
   const [velocityA, setVelocityA] = useState<VelocityVector>({ vx: 0, vy: DEFAULT_VECTOR_SPEED });
   const [velocityB, setVelocityB] = useState<VelocityVector>({ vx: 0, vy: -DEFAULT_VECTOR_SPEED });
   const [vectorLinkMode, setVectorLinkMode] = useState<VectorLinkMode>("free");
+
+  useEffect(() => {
+    setControlsOpen(!isMobile);
+  }, [isMobile]);
 
   const presetOptions = useMemo(() => presets.map((p) => p.name), []);
   const totalStars = useMemo(() => {
@@ -130,6 +153,8 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     ],
     [centers, galaxyA.color, galaxyB.color, velocityA, velocityB]
   );
+  const galaxyAColorVec = useMemo(() => hexToRgb(galaxyA.color), [galaxyA.color]);
+  const galaxyBColorVec = useMemo(() => hexToRgb(galaxyB.color), [galaxyB.color]);
   const showVectors = !running;
 
   const getLatestViewState = useCallback((): ViewState | null => {
@@ -269,6 +294,10 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     }
   }, [enterFullscreen, exitFullscreen, fullscreenMode]);
 
+  const toggleControls = useCallback(() => {
+    setControlsOpen((open) => !open);
+  }, []);
+
   const handleExit = useCallback(() => {
     if (fullscreenMode) {
       exitFullscreen();
@@ -313,6 +342,17 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     renderer.setStarSizeScale(starSize);
     renderer.render();
   }, [rendererReady, starSize]);
+
+  useEffect(() => {
+    if (!rendererReady) return;
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    renderer.setBlackHoleStyle({
+      size: currentParams.bhRadius,
+      ringWidth: currentParams.bhRingWidth,
+      ringBrightness: currentParams.bhRingBrightness
+    });
+  }, [currentParams.bhRadius, currentParams.bhRingBrightness, currentParams.bhRingWidth, rendererReady]);
 
   useEffect(() => {
     if (!rendererReady) return;
@@ -487,14 +527,20 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
         return;
       }
       if (msg.type === "frame") {
-        latestFrameRef.current = { positions: msg.positions, countA: msg.countA, countB: msg.countB, shared: msg.shared };
+        latestFrameRef.current = {
+          positions: msg.positions,
+          countA: msg.countA,
+          countB: msg.countB,
+          shared: msg.shared,
+          centers: msg.centers
+        };
         if (!framePendingRef.current) {
           framePendingRef.current = true;
           rafIdRef.current = requestAnimationFrame(() => {
             framePendingRef.current = false;
             const frame = latestFrameRef.current;
             if (!frame) return;
-            syncPositionsToBuffer(frame.positions, frame.countA, frame.countB);
+            syncPositionsToBuffer(frame.positions, frame.countA, frame.countB, frame.centers);
           });
         }
       }
@@ -511,11 +557,41 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     };
   }, []);
 
-  const syncPositionsToBuffer = (positionsBuffer: ArrayBufferLike, countA: number, countB: number) => {
+  const syncPositionsToBuffer = (
+    positionsBuffer: ArrayBufferLike,
+    countA: number,
+    countB: number,
+    centers: [number, number, number, number]
+  ) => {
     const positions = new Float32Array(positionsBuffer);
     const total = positions.length / 2;
     const renderer = rendererRef.current;
     if (!renderer) return;
+    const needsBlackHoleInit = !bhBufferRef.current;
+    if (needsBlackHoleInit) {
+      bhBufferRef.current = new Float32Array(12);
+    }
+
+    const bhBuffer = bhBufferRef.current!;
+    bhBuffer[0] = centers[0];
+    bhBuffer[1] = centers[1];
+    bhBuffer[2] = 0;
+    bhBuffer[3] = galaxyAColorVec[0];
+    bhBuffer[4] = galaxyAColorVec[1];
+    bhBuffer[5] = galaxyAColorVec[2];
+    bhBuffer[6] = centers[2];
+    bhBuffer[7] = centers[3];
+    bhBuffer[8] = 0;
+    bhBuffer[9] = galaxyBColorVec[0];
+    bhBuffer[10] = galaxyBColorVec[1];
+    bhBuffer[11] = galaxyBColorVec[2];
+
+    if (needsBlackHoleInit) {
+      renderer.setBlackHoles({ data: bhBuffer, count: 2 }, false);
+    } else {
+      renderer.updateBlackHoles(bhBuffer, false);
+    }
+
     if (!baseBufferRef.current || starCountRef.current !== total) {
       const buffer = new Float32Array(total * 5);
       // Static intensities/colors: warm for A, cool for B.
@@ -539,10 +615,10 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
       buffer[i * 5 + 1] = positions[i * 2 + 1];
       buffer[i * 5 + 2] = 0;
     }
-    const t1 = performance.now();
-    renderer.updateStarBuffer(buffer);
-    setPerfStats((prev) => ({ ...prev, uploadMs: performance.now() - t1 }));
-  };
+      const t1 = performance.now();
+      renderer.updateStarBuffer(buffer);
+      setPerfStats((prev) => ({ ...prev, uploadMs: performance.now() - t1 }));
+    };
 
   // Re-init worker when galaxies change
   useEffect(() => {
@@ -561,6 +637,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
         {
           params: capped.a,
           mass: effectiveMass(capped.a, galaxyA.massScale),
+          bhMass: solarMassToSimMass(galaxyA.bhMassSolar),
           center: centers.A,
           velocity: [velocityA.vx, velocityA.vy],
           seed: 1337
@@ -568,6 +645,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
         {
           params: capped.b,
           mass: effectiveMass(capped.b, galaxyB.massScale),
+          bhMass: solarMassToSimMass(galaxyB.bhMassSolar),
           center: centers.B,
           velocity: [velocityB.vx, velocityB.vy],
           seed: 4242
@@ -576,6 +654,7 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     };
     workerRef.current.postMessage({ type: "pause" });
     baseBufferRef.current = null;
+    bhBufferRef.current = null;
     starCountRef.current = 0;
     workerRef.current.postMessage({ type: "init", payload });
     setRunning(false);
@@ -630,19 +709,25 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
 
   const setFromPreset = (target: "A" | "B", name: string) => {
     const presetParams = capForCollision(findPreset(name) ?? resolvePreset(name));
-    const next = makeGalaxyInstance(name, presetParams, {
-      color: target === "A" ? GALAXY_A_COLOR : GALAXY_B_COLOR,
-      massScale: 1
-    });
+    const next = {
+      ...makeGalaxyInstance(name, presetParams, {
+        color: target === "A" ? GALAXY_A_COLOR : GALAXY_B_COLOR,
+        massScale: 1
+      }),
+      bhMassSolar: DEFAULT_BH_MASS_SOLAR
+    };
     if (target === "A") setGalaxyA({ ...next });
     else setGalaxyB({ ...next });
   };
 
   const useCurrentParams = (target: "A" | "B") => {
-    const next = makeGalaxyInstance("My galaxy", capForCollision(currentParams), {
-      color: target === "A" ? GALAXY_A_COLOR : GALAXY_B_COLOR,
-      massScale: 1
-    });
+    const next = {
+      ...makeGalaxyInstance("My galaxy", capForCollision(currentParams), {
+        color: target === "A" ? GALAXY_A_COLOR : GALAXY_B_COLOR,
+        massScale: 1
+      }),
+      bhMassSolar: DEFAULT_BH_MASS_SOLAR
+    };
     if (target === "A") setGalaxyA(next);
     else setGalaxyB(next);
   };
@@ -659,6 +744,12 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
     const clamped = clampNumber(massScale, 0.2, 5);
     if (target === "A") setGalaxyA((prev) => ({ ...prev, massScale: clamped }));
     else setGalaxyB((prev) => ({ ...prev, massScale: clamped }));
+  };
+
+  const updateBlackHoleMass = (target: "A" | "B", massSolar: number) => {
+    const clamped = clampNumber(massSolar, BH_MASS_SOLAR_MIN, BH_MASS_SOLAR_MAX);
+    if (target === "A") setGalaxyA((prev) => ({ ...prev, bhMassSolar: clamped }));
+    else setGalaxyB((prev) => ({ ...prev, bhMassSolar: clamped }));
   };
 
   const updateStarSize = (value: number) => {
@@ -806,74 +897,96 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
 
   const statsA = velocityStats.A;
   const statsB = velocityStats.B;
+  const controlsLabel = controlsOpen ? "Hide controls" : "Show controls";
+
+  const playbackControls = (
+    <div className="zoom-controls" aria-label="Playback controls">
+      <div className="zoom-row">
+        <div className="zoom-label">Playback</div>
+        <div className="zoom-value">{running ? "Playing" : "Paused"}</div>
+      </div>
+      <div className="chip-row">
+        <button className="btn primary" disabled={loading} onClick={start} type="button">
+          Play
+        </button>
+        <button className="btn secondary" onClick={pause} type="button">
+          Pause
+        </button>
+        <button className="btn ghost" onClick={reset} type="button">
+          Reset
+        </button>
+      </div>
+    </div>
+  );
+
+  const timeControls = (
+    <div className="zoom-controls" aria-label="Time scale">
+      <div className="zoom-row">
+        <div className="zoom-label">Time scale</div>
+        <div className="zoom-value">{timeScale.toFixed(2)}x</div>
+      </div>
+      <input
+        className="zoom-slider"
+        type="range"
+        min={0.25}
+        max={3}
+        step={0.05}
+        value={timeScale}
+        onChange={(e) => setTimeScale(parseFloat(e.target.value))}
+      />
+    </div>
+  );
+
+  const zoomControls = (
+    <div className="zoom-controls" aria-label="Zoom controls">
+      <div className="zoom-row">
+        <div className="zoom-label">Zoom</div>
+        <div className="zoom-value">{Math.round(zoomDistance)}</div>
+      </div>
+      <input
+        className="zoom-slider"
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={distanceToSlider(zoomDistance)}
+        onChange={(e) => handleZoomSlider(sliderToDistance(parseFloat(e.target.value)))}
+        aria-valuemin={ZOOM_MIN}
+        aria-valuemax={ZOOM_MAX}
+        aria-valuenow={Math.round(zoomDistance)}
+        aria-label="Zoom level"
+      />
+      <div className="zoom-legend" aria-hidden="true">
+        <span>Wide</span>
+        <span>Close</span>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="layout collision-layout">
+    <div className={`layout collision-layout ${isMobile ? "is-mobile" : ""}`}>
       <section className="panel viewport-panel">
         <div className="panel-heading-row">
           <div className="panel-heading">Collision viewport</div>
           <div className="heading-actions">
+            {isMobile && (
+              <button className="btn secondary" onClick={toggleControls} type="button">
+                {controlsLabel}
+              </button>
+            )}
             <button className="btn secondary" onClick={handleExit} type="button">
               Back to explorer
             </button>
           </div>
         </div>
-        <div className="viewport-toolbar">
-          <div className="zoom-controls" aria-label="Playback controls">
-            <div className="zoom-row">
-              <div className="zoom-label">Playback</div>
-              <div className="zoom-value">{running ? "Playing" : "Paused"}</div>
-            </div>
-            <div className="chip-row">
-              <button className="btn primary" disabled={loading} onClick={start} type="button">
-                Play
-              </button>
-              <button className="btn secondary" onClick={pause} type="button">
-                Pause
-              </button>
-              <button className="btn ghost" onClick={reset} type="button">
-                Reset
-              </button>
-            </div>
-          </div>
-          <div className="zoom-controls" aria-label="Time scale">
-            <div className="zoom-row">
-              <div className="zoom-label">Time scale</div>
-              <div className="zoom-value">{timeScale.toFixed(2)}x</div>
-            </div>
-            <input
-              className="zoom-slider"
-              type="range"
-              min={0.25}
-              max={3}
-              step={0.05}
-              value={timeScale}
-              onChange={(e) => setTimeScale(parseFloat(e.target.value))}
-            />
-          </div>
-          <div className="zoom-controls" aria-label="Zoom controls">
-            <div className="zoom-row">
-              <div className="zoom-label">Zoom</div>
-              <div className="zoom-value">{Math.round(zoomDistance)}</div>
-            </div>
-            <input
-              className="zoom-slider"
-              type="range"
-              min={0}
-              max={100}
-              step={1}
-              value={distanceToSlider(zoomDistance)}
-              onChange={(e) => handleZoomSlider(sliderToDistance(parseFloat(e.target.value)))}
-              aria-valuemin={ZOOM_MIN}
-              aria-valuemax={ZOOM_MAX}
-              aria-valuenow={Math.round(zoomDistance)}
-              aria-label="Zoom level"
-            />
-            <div className="zoom-legend" aria-hidden="true">
-              <span>Wide</span>
-              <span>Close</span>
-            </div>
-          </div>
+        <div className={`viewport-toolbar ${isMobile ? "is-compact" : ""}`}>
+          {playbackControls}
+          {!isMobile && (
+            <>
+              {timeControls}
+              {zoomControls}
+            </>
+          )}
         </div>
         <div className={`canvas-shell ${fullscreenMode ? "is-immersive" : ""}`} ref={shellRef}>
           <canvas ref={canvasRef} className="viewport" />
@@ -967,8 +1080,26 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
         </div>
       </section>
 
-      <section className="panel controls-panel">
+      <section className={`panel controls-panel ${controlsOpen ? "is-open" : "is-closed"}`}>
+        <div className="controls-header">
+          <button className="controls-grip" type="button" onClick={toggleControls} aria-label={controlsLabel} />
+          <div className="controls-heading">
+            <div className="panel-heading">Controls</div>
+            <button className="btn sheet-toggle" type="button" onClick={toggleControls}>
+              {controlsLabel}
+            </button>
+          </div>
+        </div>
         <div className="controls-scroll">
+          {isMobile && (
+            <div className="section">
+              <div className="section-title">Playback & view</div>
+              <div className="stack">
+                {timeControls}
+                {zoomControls}
+              </div>
+            </div>
+          )}
           <div className="controls-grid">
             <div className="section">
               <div
@@ -1005,6 +1136,14 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
                     onChange={(e) => updateMassScale("A", parseFloat(e.target.value))}
                   />
                 </label>
+                <LogMassScrubber
+                  label="SMBH mass"
+                  value={galaxyA.bhMassSolar}
+                  minExp={BH_MASS_LOG_MIN}
+                  maxExp={BH_MASS_LOG_MAX}
+                  step={BH_MASS_LOG_STEP}
+                  onChange={(value) => updateBlackHoleMass("A", value)}
+                />
                 <label className="field">
                   <div className="field-label">
                     <span className="field-label-text">Resolution scale</span>
@@ -1123,6 +1262,14 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
                     onChange={(e) => updateMassScale("B", parseFloat(e.target.value))}
                   />
                 </label>
+                <LogMassScrubber
+                  label="SMBH mass"
+                  value={galaxyB.bhMassSolar}
+                  minExp={BH_MASS_LOG_MIN}
+                  maxExp={BH_MASS_LOG_MAX}
+                  step={BH_MASS_LOG_STEP}
+                  onChange={(value) => updateBlackHoleMass("B", value)}
+                />
                 <label className="field">
                   <div className="field-label">
                     <span className="field-label-text">Resolution scale</span>
@@ -1273,8 +1420,141 @@ export function CollisionLab({ currentParams, isMobile, onExit }: Props) {
   );
 }
 
+type LogMassScrubberProps = {
+  label: string;
+  value: number;
+  minExp: number;
+  maxExp: number;
+  step: number;
+  onChange: (value: number) => void;
+};
+
+function LogMassScrubber({ label, value, minExp, maxExp, step, onChange }: LogMassScrubberProps) {
+  const logValue = clampNumber(log10Safe(value), minExp, maxExp);
+  const [draft, setDraft] = useState(logValue);
+  const startX = useRef(0);
+  const startValue = useRef(logValue);
+  const isDragging = useRef(false);
+  const activePointerId = useRef<number | null>(null);
+  const pendingValue = useRef(logValue);
+  const scrubRaf = useRef<number | null>(null);
+
+  useEffect(() => {
+    setDraft(logValue);
+    startValue.current = logValue;
+    pendingValue.current = logValue;
+  }, [logValue]);
+
+  const clampExp = (next: number) => clampNumber(next, minExp, maxExp);
+
+  const commit = (nextExp: number) => {
+    const clamped = clampExp(nextExp);
+    setDraft(clamped);
+    const nextMass = Math.pow(10, clamped);
+    if (Math.abs(clamped - logValue) > 1e-4) {
+      onChange(nextMass);
+    }
+  };
+
+  const scheduleDraftSync = () => {
+    if (scrubRaf.current !== null) return;
+    scrubRaf.current = requestAnimationFrame(() => {
+      scrubRaf.current = null;
+      setDraft(pendingValue.current);
+    });
+  };
+
+  const handleRangeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const next = parseFloat(e.target.value);
+    if (Number.isNaN(next)) return;
+    commit(next);
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    activePointerId.current = e.pointerId;
+    startX.current = e.clientX;
+    startValue.current = draft;
+    pendingValue.current = draft;
+    isDragging.current = true;
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+  };
+
+  const handlePointerMove = (e: PointerEvent) => {
+    if (!isDragging.current || e.pointerId !== activePointerId.current) return;
+    const delta = e.clientX - startX.current;
+    pendingValue.current = clampExp(startValue.current + delta * step * scrubMultiplier(e));
+    scheduleDraftSync();
+  };
+
+  const handlePointerUp = (e: PointerEvent) => {
+    if (e.pointerId !== activePointerId.current) return;
+    isDragging.current = false;
+    activePointerId.current = null;
+    if (scrubRaf.current !== null) {
+      cancelAnimationFrame(scrubRaf.current);
+      scrubRaf.current = null;
+    }
+    commit(pendingValue.current);
+    window.removeEventListener("pointermove", handlePointerMove);
+    window.removeEventListener("pointerup", handlePointerUp);
+    window.removeEventListener("pointercancel", handlePointerUp);
+  };
+
+  useEffect(
+    () => () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+      if (scrubRaf.current !== null) {
+        cancelAnimationFrame(scrubRaf.current);
+        scrubRaf.current = null;
+      }
+    },
+    []
+  );
+
+  const formatted = formatSolarMass(value);
+
+  return (
+    <label className="field">
+      <div className="field-label" onPointerDown={handlePointerDown} title="Drag to scrub. Shift=10x, Alt=0.1x.">
+        <span className="scrub-handle" aria-hidden="true">
+          {"<>"}
+        </span>
+        <span className="field-label-text">{label}</span>
+        <span className="scrub-pill" aria-hidden="true">
+          log
+        </span>
+      </div>
+      <div className="title-status">{formatted} solar masses</div>
+      <input
+        type="range"
+        min={minExp}
+        max={maxExp}
+        step={step}
+        value={draft}
+        onChange={handleRangeChange}
+        aria-label={`${label} (log10)`}
+        aria-valuetext={`${formatted} solar masses`}
+      />
+    </label>
+  );
+}
+
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function hexToRgb(value: string): [number, number, number] {
+  const hex = value.replace("#", "").trim();
+  if (hex.length !== 6) return [1, 1, 1];
+  const r = Number.parseInt(hex.slice(0, 2), 16);
+  const g = Number.parseInt(hex.slice(2, 4), 16);
+  const b = Number.parseInt(hex.slice(4, 6), 16);
+  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return [1, 1, 1];
+  return [r / 255, g / 255, b / 255];
 }
 
 function clampVector(vec: VelocityVector, maxMagnitude: number): VelocityVector {
@@ -1327,6 +1607,28 @@ function sliderToDistance(value: number) {
 function effectiveMass(params: GalaxyParameters, massScale: number) {
   const base = (params.starCount + params.bulgeStarCount) / 60000;
   return massScale * Math.max(0.5, base);
+}
+
+function solarMassToSimMass(massSolar: number) {
+  const clamped = clampNumber(massSolar, BH_MASS_SOLAR_MIN, BH_MASS_SOLAR_MAX);
+  return clamped / SOLAR_MASS_PER_SIM_UNIT;
+}
+
+function log10Safe(value: number) {
+  return Math.log10(Math.max(value, BH_MASS_SOLAR_MIN));
+}
+
+function formatSolarMass(massSolar: number) {
+  if (!isFinite(massSolar) || massSolar <= 0) return "0";
+  const exp = Math.floor(Math.log10(massSolar));
+  const mantissa = massSolar / Math.pow(10, exp);
+  return `${mantissa.toFixed(2)}e${exp}`;
+}
+
+function scrubMultiplier(event: PointerEvent | React.PointerEvent) {
+  if (event.shiftKey) return 10;
+  if (event.altKey) return 0.1;
+  return 1;
 }
 
 function wrapDegrees(deg: number) {

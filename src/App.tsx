@@ -34,6 +34,7 @@ type TiltReference = {
 const DEFAULT_PRESET_NAME = "Andromeda (M31)";
 const TILT_RESPONSE_GAIN = 1.5;
 const DEFAULT_ZOOM_DISTANCE = 75;
+const BLACK_HOLE_COLOR: [number, number, number] = [1, 0.55, 0.35];
 
 type FeaturedPresetCard = {
   title: string;
@@ -217,6 +218,32 @@ export default function App() {
     if (!renderer) return;
     renderer.setStarSizeScale(params.starSize);
   }, [rendererReady, params.starSize]);
+
+  useEffect(() => {
+    if (!rendererReady) return;
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    renderer.setBlackHoleStyle({
+      size: params.bhRadius,
+      ringWidth: params.bhRingWidth,
+      ringBrightness: params.bhRingBrightness
+    });
+  }, [rendererReady, params.bhRadius, params.bhRingWidth, params.bhRingBrightness]);
+
+  useEffect(() => {
+    if (!rendererReady) return;
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    const buffer = new Float32Array([
+      0,
+      0,
+      0,
+      BLACK_HOLE_COLOR[0],
+      BLACK_HOLE_COLOR[1],
+      BLACK_HOLE_COLOR[2]
+    ]);
+    renderer.setBlackHoles({ data: buffer, count: 1 });
+  }, [rendererReady]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -721,6 +748,33 @@ export default function App() {
                       onChange={(v) => updateParam("starSize", v)}
                     />
                     <PlaySlider
+                      label="SMBH size"
+                      description="Scale the central black hole."
+                      value={params.bhRadius}
+                      min={2}
+                      max={10}
+                      step={0.1}
+                      onChange={(v) => updateParam("bhRadius", v)}
+                    />
+                    <PlaySlider
+                      label="Ring width"
+                      description="Thickness of the accretion ring."
+                      value={params.bhRingWidth}
+                      min={0.05}
+                      max={0.5}
+                      step={0.01}
+                      onChange={(v) => updateParam("bhRingWidth", v)}
+                    />
+                    <PlaySlider
+                      label="Ring glow"
+                      description="Boost the accretion glow."
+                      value={params.bhRingBrightness}
+                      min={0.5}
+                      max={2.5}
+                      step={0.05}
+                      onChange={(v) => updateParam("bhRingBrightness", v)}
+                    />
+                    <PlaySlider
                       label="Spiral arms"
                       description="Number of major arms."
                       value={params.armCount}
@@ -929,6 +983,36 @@ export default function App() {
                         step={0.05}
                         decimals={2}
                         onChange={(v) => updateParam("bulgeBrightness", v)}
+                      />
+                    </Section>
+
+                    <Section title="Black hole">
+                      <NumericField
+                        label="SMBH size"
+                        value={params.bhRadius}
+                        min={2}
+                        max={10}
+                        step={0.1}
+                        decimals={1}
+                        onChange={(v) => updateParam("bhRadius", v)}
+                      />
+                      <NumericField
+                        label="Ring width"
+                        value={params.bhRingWidth}
+                        min={0.05}
+                        max={0.5}
+                        step={0.01}
+                        decimals={2}
+                        onChange={(v) => updateParam("bhRingWidth", v)}
+                      />
+                      <NumericField
+                        label="Ring glow"
+                        value={params.bhRingBrightness}
+                        min={0.5}
+                        max={2.5}
+                        step={0.05}
+                        decimals={2}
+                        onChange={(v) => updateParam("bhRingBrightness", v)}
                       />
                     </Section>
                   </div>
