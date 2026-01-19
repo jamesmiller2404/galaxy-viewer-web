@@ -145,6 +145,8 @@ async function computeScene(args: SceneRequest): Promise<SceneResponse> {
   const jupiterRadius = getJupiterRadius(api);
   const angularRadiusArcsec = Math.atan(jupiterRadius / Math.max(jupiterRaDec.rangeKm, 1e-9)) * 206264.806;
   const lineOfSight = unit(jupiterPos);
+  const earthState = safeSpkezrState(api, "EARTH", et, args.frame3d, "NONE", "JUPITER");
+  const earthDirection = earthState ? unit(earthState.pos) : { x: 1, y: 0, z: 0 };
 
   const moons = [];
   for (const target of targetsForMode(args.mode)) {
@@ -264,6 +266,7 @@ async function computeScene(args: SceneRequest): Promise<SceneResponse> {
       distanceKm: jupiterRaDec.rangeKm,
       angularRadiusArcsec
     },
+    earthDirection,
     moons,
     features
   };

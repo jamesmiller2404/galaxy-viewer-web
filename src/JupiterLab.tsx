@@ -26,10 +26,13 @@ const REFERENCE_GRID_RADIUS = 1.1;
 const REFERENCE_GRID_STEP = 0.2;
 const REFERENCE_AXIS_LENGTH = 1.25;
 const REFERENCE_ARROW_SIZE = 0.08;
-const GRID_COLOR: [number, number, number, number] = [0.55, 0.72, 0.9, 0.18];
+const EARTH_ARROW_LENGTH = 1.35;
+const EARTH_ARROW_SIZE = 0.07;
+const GRID_COLOR: [number, number, number, number] = [0.7, 0.86, 1, 0.6];
 const AXIS_X_COLOR: [number, number, number, number] = [1, 0.4, 0.36, 0.92];
 const AXIS_Y_COLOR: [number, number, number, number] = [0.45, 1, 0.62, 0.92];
 const AXIS_Z_COLOR: [number, number, number, number] = [0.46, 0.66, 1, 0.92];
+const EARTH_ARROW_COLOR: [number, number, number, number] = [1, 0.93, 0.45, 0.95];
 
 type ViewMode = "telescope" | "orbit";
 
@@ -239,7 +242,7 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
   const center = viewSize / 2;
   const jupiterRadiusPx = scene ? scene.jupiter.angularRadiusArcsec * pixelsPerArcsec : 0;
   const orbitBodies = useMemo(() => (scene ? buildOrbitBodies(scene) : null), [scene]);
-  const referenceLines = useMemo(() => (orbitBodies ? buildReferenceLines() : null), [orbitBodies]);
+  const referenceLines = useMemo(() => (scene ? buildReferenceLines(scene.earthDirection) : null), [scene]);
 
   useEffect(() => {
     if (!rendererReady || viewMode !== "orbit" || !orbitBodies) return;
@@ -469,12 +472,16 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
                       <span className="axis-dot axis-y" />
                       <span>Y</span>
                     </div>
-                    <div className="axis-row">
-                      <span className="axis-dot axis-z" />
-                      <span>Z</span>
-                    </div>
-                    <div className="axis-note">Reference plane: Y = 0 ({frame3d})</div>
+                  <div className="axis-row">
+                    <span className="axis-dot axis-z" />
+                    <span>Z</span>
                   </div>
+                  <div className="axis-row">
+                    <span className="axis-dot axis-earth" />
+                    <span>Earth</span>
+                  </div>
+                  <div className="axis-note">Reference plane: Y = 0 ({frame3d})</div>
+                </div>
                 </div>
                 {fullscreenMode && (
                   <div className="view-actions">
@@ -843,7 +850,7 @@ function writeBody(
   buffer[offset + 6] = color[2];
 }
 
-function buildReferenceLines() {
+function buildReferenceLines(earthDirection?: SceneResponse["earthDirection"]) {
   const data: number[] = [];
   const radius = REFERENCE_GRID_RADIUS;
   const step = REFERENCE_GRID_STEP;
@@ -921,6 +928,19 @@ function buildReferenceLines() {
     AXIS_Z_COLOR
   );
 
+  const earthDir = normalizeVec(earthDirection ?? { x: 1, y: 0, z: 0 });
+  const earthTip = scaleVec(earthDir, EARTH_ARROW_LENGTH);
+  pushLine(data, 0, 0, 0, earthTip.x, earthTip.y, earthTip.z, EARTH_ARROW_COLOR);
+
+  const arrowBase = subVec(earthTip, scaleVec(earthDir, EARTH_ARROW_SIZE));
+  const upRef = Math.abs(earthDir.y) > 0.85 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };
+  const side = normalizeVec(crossVec(earthDir, upRef));
+  const wing = scaleVec(side, EARTH_ARROW_SIZE * 0.7);
+  const wingA = addVec(arrowBase, wing);
+  const wingB = subVec(arrowBase, wing);
+  pushLine(data, earthTip.x, earthTip.y, earthTip.z, wingA.x, wingA.y, wingA.z, EARTH_ARROW_COLOR);
+  pushLine(data, earthTip.x, earthTip.y, earthTip.z, wingB.x, wingB.y, wingB.z, EARTH_ARROW_COLOR);
+
   return { buffer: new Float32Array(data), count: data.length / 7 };
 }
 
@@ -940,4 +960,25 @@ function pushLine(
 
 function pushVertex(data: number[], x: number, y: number, z: number, color: [number, number, number, number]) {
   data.push(x, y, z, color[0], color[1], color[2], color[3]);
+}
+
+function normalizeVec(vec: SceneResponse["earthDirection"]) {
+  const length = Math.hypot(vec.x, vec.y, vec.z) || 1;
+  return { x: vec.x / length, y: vec.y / length, z: vec.z / length };
+}
+
+function scaleVec(vec: SceneResponse["earthDirection"], scalar: number) {
+  return { x: vec.x * scalar, y: vec.y * scalar, z: vec.z * scalar };
+}
+
+function addVec(a: SceneResponse["earthDirection"], b: SceneResponse["earthDirection"]) {
+  return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z };
+}
+
+function subVec(a: SceneResponse["earthDirection"], b: SceneResponse["earthDirection"]) {
+  return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+}
+
+function crossVec(a: SceneResponse["earthDirection"], b: SceneResponse["earthDirection"]) {
+  return { x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x };
 }

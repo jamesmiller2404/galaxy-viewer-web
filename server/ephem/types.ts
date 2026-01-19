@@ -44,6 +44,7 @@ export type SceneResponse = {
     distanceKm: number;
     angularRadiusArcsec: number;
   };
+  earthDirection: Vec3;
   moons: Array<{
     key: string;
     displayName: string;

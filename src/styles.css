@@ -780,6 +780,11 @@ h1 {
   box-shadow: 0 0 8px rgba(106, 160, 255, 0.55);
 }
 
+.axis-dot.axis-earth {
+  background: #f7e26e;
+  box-shadow: 0 0 8px rgba(247, 226, 110, 0.6);
+}
+
 .axis-note {
   font-size: 10px;
   color: var(--muted);
