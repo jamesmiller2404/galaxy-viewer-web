@@ -22,6 +22,14 @@ const COLOR_JUPITER: [number, number, number] = [1, 0.62, 0.33];
 const COLOR_MOON: [number, number, number] = [0.22, 0.74, 0.97];
 const COLOR_TRANSIT: [number, number, number] = [1, 0.55, 0.35];
 const COLOR_OCCULTED: [number, number, number] = [0.55, 0.58, 0.66];
+const REFERENCE_GRID_RADIUS = 1.1;
+const REFERENCE_GRID_STEP = 0.2;
+const REFERENCE_AXIS_LENGTH = 1.25;
+const REFERENCE_ARROW_SIZE = 0.08;
+const GRID_COLOR: [number, number, number, number] = [0.55, 0.72, 0.9, 0.18];
+const AXIS_X_COLOR: [number, number, number, number] = [1, 0.4, 0.36, 0.92];
+const AXIS_Y_COLOR: [number, number, number, number] = [0.45, 1, 0.62, 0.92];
+const AXIS_Z_COLOR: [number, number, number, number] = [0.46, 0.66, 1, 0.92];
 
 type ViewMode = "telescope" | "orbit";
 
@@ -231,6 +239,7 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
   const center = viewSize / 2;
   const jupiterRadiusPx = scene ? scene.jupiter.angularRadiusArcsec * pixelsPerArcsec : 0;
   const orbitBodies = useMemo(() => (scene ? buildOrbitBodies(scene) : null), [scene]);
+  const referenceLines = useMemo(() => (orbitBodies ? buildReferenceLines() : null), [orbitBodies]);
 
   useEffect(() => {
     if (!rendererReady || viewMode !== "orbit" || !orbitBodies) return;
@@ -238,6 +247,13 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
     if (!renderer) return;
     renderer.setBodies({ data: orbitBodies.buffer, count: orbitBodies.count });
   }, [rendererReady, viewMode, orbitBodies]);
+
+  useEffect(() => {
+    if (!rendererReady || viewMode !== "orbit" || !referenceLines) return;
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    renderer.setReferenceLines({ data: referenceLines.buffer, count: referenceLines.count });
+  }, [rendererReady, viewMode, referenceLines]);
 
   useEffect(() => {
     if (!rendererReady || viewMode !== "orbit") return;
@@ -444,6 +460,21 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
                       <div className="scene-meta">Drag to orbit around the moons</div>
                     </div>
                   )}
+                  <div className="axis-legend" aria-label="Axis orientation">
+                    <div className="axis-row">
+                      <span className="axis-dot axis-x" />
+                      <span>X</span>
+                    </div>
+                    <div className="axis-row">
+                      <span className="axis-dot axis-y" />
+                      <span>Y</span>
+                    </div>
+                    <div className="axis-row">
+                      <span className="axis-dot axis-z" />
+                      <span>Z</span>
+                    </div>
+                    <div className="axis-note">Reference plane: Y = 0 ({frame3d})</div>
+                  </div>
                 </div>
                 {fullscreenMode && (
                   <div className="view-actions">
@@ -810,4 +841,103 @@ function writeBody(
   buffer[offset + 4] = color[0];
   buffer[offset + 5] = color[1];
   buffer[offset + 6] = color[2];
+}
+
+function buildReferenceLines() {
+  const data: number[] = [];
+  const radius = REFERENCE_GRID_RADIUS;
+  const step = REFERENCE_GRID_STEP;
+  const steps = Math.round(radius / step);
+
+  for (let i = -steps; i <= steps; i += 1) {
+    const offset = i * step;
+    pushLine(data, -radius, 0, offset, radius, 0, offset, GRID_COLOR);
+    pushLine(data, offset, 0, -radius, offset, 0, radius, GRID_COLOR);
+  }
+
+  pushLine(data, 0, 0, 0, REFERENCE_AXIS_LENGTH, 0, 0, AXIS_X_COLOR);
+  pushLine(
+    data,
+    REFERENCE_AXIS_LENGTH,
+    0,
+    0,
+    REFERENCE_AXIS_LENGTH - REFERENCE_ARROW_SIZE,
+    0,
+    REFERENCE_ARROW_SIZE * 0.5,
+    AXIS_X_COLOR
+  );
+  pushLine(
+    data,
+    REFERENCE_AXIS_LENGTH,
+    0,
+    0,
+    REFERENCE_AXIS_LENGTH - REFERENCE_ARROW_SIZE,
+    0,
+    -REFERENCE_ARROW_SIZE * 0.5,
+    AXIS_X_COLOR
+  );
+
+  pushLine(data, 0, 0, 0, 0, REFERENCE_AXIS_LENGTH, 0, AXIS_Y_COLOR);
+  pushLine(
+    data,
+    0,
+    REFERENCE_AXIS_LENGTH,
+    0,
+    REFERENCE_ARROW_SIZE * 0.5,
+    REFERENCE_AXIS_LENGTH - REFERENCE_ARROW_SIZE,
+    0,
+    AXIS_Y_COLOR
+  );
+  pushLine(
+    data,
+    0,
+    REFERENCE_AXIS_LENGTH,
+    0,
+    -REFERENCE_ARROW_SIZE * 0.5,
+    REFERENCE_AXIS_LENGTH - REFERENCE_ARROW_SIZE,
+    0,
+    AXIS_Y_COLOR
+  );
+
+  pushLine(data, 0, 0, 0, 0, 0, REFERENCE_AXIS_LENGTH, AXIS_Z_COLOR);
+  pushLine(
+    data,
+    0,
+    0,
+    REFERENCE_AXIS_LENGTH,
+    REFERENCE_ARROW_SIZE * 0.5,
+    0,
+    REFERENCE_AXIS_LENGTH - REFERENCE_ARROW_SIZE,
+    AXIS_Z_COLOR
+  );
+  pushLine(
+    data,
+    0,
+    0,
+    REFERENCE_AXIS_LENGTH,
+    -REFERENCE_ARROW_SIZE * 0.5,
+    0,
+    REFERENCE_AXIS_LENGTH - REFERENCE_ARROW_SIZE,
+    AXIS_Z_COLOR
+  );
+
+  return { buffer: new Float32Array(data), count: data.length / 7 };
+}
+
+function pushLine(
+  data: number[],
+  x1: number,
+  y1: number,
+  z1: number,
+  x2: number,
+  y2: number,
+  z2: number,
+  color: [number, number, number, number]
+) {
+  pushVertex(data, x1, y1, z1, color);
+  pushVertex(data, x2, y2, z2, color);
+}
+
+function pushVertex(data: number[], x: number, y: number, z: number, color: [number, number, number, number]) {
+  data.push(x, y, z, color[0], color[1], color[2], color[3]);
 }

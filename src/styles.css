@@ -307,6 +307,13 @@ h1 {
   left: calc(env(safe-area-inset-left) + 12px);
 }
 
+.canvas-shell.is-immersive .axis-legend,
+.canvas-shell:fullscreen .axis-legend,
+.canvas-shell:-webkit-full-screen .axis-legend {
+  top: calc(env(safe-area-inset-top) + 12px);
+  right: calc(env(safe-area-inset-right) + 12px);
+}
+
 .canvas-shell.is-immersive .view-actions,
 .canvas-shell:fullscreen .view-actions,
 .canvas-shell:-webkit-full-screen .view-actions {
@@ -726,6 +733,56 @@ h1 {
 
 .scene-badge.is-loading {
   animation: pulse 1.4s ease-in-out infinite;
+}
+
+.axis-legend {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.axis-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.axis-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.axis-dot.axis-x {
+  background: #ff615c;
+  box-shadow: 0 0 8px rgba(255, 97, 92, 0.6);
+}
+
+.axis-dot.axis-y {
+  background: #60f3a2;
+  box-shadow: 0 0 8px rgba(96, 243, 162, 0.55);
+}
+
+.axis-dot.axis-z {
+  background: #6aa0ff;
+  box-shadow: 0 0 8px rgba(106, 160, 255, 0.55);
+}
+
+.axis-note {
+  font-size: 10px;
+  color: var(--muted);
 }
 
 .hint {

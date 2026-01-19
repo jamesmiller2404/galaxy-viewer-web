@@ -1,7 +1,13 @@
 import { OrbitCamera } from "@domain/orbitCamera";
 import { jupiterFragmentSource, jupiterVertexSource } from "./jupiterShaders";
+import { jupiterReferenceFragmentSource, jupiterReferenceVertexSource } from "./jupiterReferenceShaders";
 
 export type JupiterBodyBuffer = {
+  data: Float32Array;
+  count: number;
+};
+
+export type JupiterReferenceBuffer = {
   data: Float32Array;
   count: number;
 };
@@ -13,8 +19,14 @@ export class JupiterRenderer {
   private vbo!: WebGLBuffer;
   private uView!: WebGLUniformLocation;
   private uProjection!: WebGLUniformLocation;
+  private refProgram!: WebGLProgram;
+  private refVao!: WebGLVertexArrayObject;
+  private refVbo!: WebGLBuffer;
+  private uRefView!: WebGLUniformLocation;
+  private uRefProjection!: WebGLUniformLocation;
   private camera = new OrbitCamera();
   private bodyCount = 0;
+  private referenceCount = 0;
 
   constructor(private canvas: HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2");
@@ -43,6 +55,23 @@ export class JupiterRenderer {
 
     gl.bindVertexArray(null);
 
+    this.refProgram = this.createProgram(jupiterReferenceVertexSource, jupiterReferenceFragmentSource);
+    this.uRefView = gl.getUniformLocation(this.refProgram, "uView")!;
+    this.uRefProjection = gl.getUniformLocation(this.refProgram, "uProjection")!;
+
+    this.refVao = gl.createVertexArray()!;
+    this.refVbo = gl.createBuffer()!;
+    gl.bindVertexArray(this.refVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.refVbo);
+
+    const refStride = 7 * 4;
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, refStride, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, refStride, 3 * 4);
+
+    gl.bindVertexArray(null);
+
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.enable(gl.DEPTH_TEST);
@@ -56,6 +85,14 @@ export class JupiterRenderer {
     const gl = this.gl;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
     gl.bufferData(gl.ARRAY_BUFFER, buffer.data, gl.DYNAMIC_DRAW);
+    this.render();
+  }
+
+  setReferenceLines(buffer: JupiterReferenceBuffer) {
+    this.referenceCount = buffer.count;
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.refVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, buffer.data, gl.STATIC_DRAW);
     this.render();
   }
 
@@ -85,6 +122,15 @@ export class JupiterRenderer {
     const aspect = this.canvas.width / Math.max(1, this.canvas.height);
     const view = this.camera.getViewMatrix();
     const projection = this.camera.getProjectionMatrix(aspect);
+
+    if (this.referenceCount > 0) {
+      gl.useProgram(this.refProgram);
+      gl.uniformMatrix4fv(this.uRefView, false, view);
+      gl.uniformMatrix4fv(this.uRefProjection, false, projection);
+      gl.bindVertexArray(this.refVao);
+      gl.drawArrays(gl.LINES, 0, this.referenceCount);
+      gl.bindVertexArray(null);
+    }
 
     gl.useProgram(this.program);
     gl.uniformMatrix4fv(this.uView, false, view);
@@ -123,8 +169,11 @@ export class JupiterRenderer {
   dispose() {
     const gl = this.gl;
     gl.deleteProgram(this.program);
+    gl.deleteProgram(this.refProgram);
     gl.deleteBuffer(this.vbo);
+    gl.deleteBuffer(this.refVbo);
     gl.deleteVertexArray(this.vao);
+    gl.deleteVertexArray(this.refVao);
   }
 
   private createProgram(vsSource: string, fsSource: string) {
