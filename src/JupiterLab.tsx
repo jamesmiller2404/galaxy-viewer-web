@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { JupiterRenderer } from "@gl/jupiterRenderer";
 import type { SceneResponse } from "./types/jupiter";
 
 type JupiterLabProps = {
@@ -10,6 +11,19 @@ const MIN_FOV_ARCSEC = 80;
 const MAX_FOV_ARCSEC = 1600;
 const REFRESH_MS = 4000;
 const REQUEST_TIMEOUT_MS = 120000;
+const ORBIT_DEFAULT_DISTANCE = 2.2;
+const ORBIT_MIN_DISTANCE = 0.6;
+const ORBIT_MAX_DISTANCE = 6;
+const JUPITER_RADIUS_KM = 71492;
+const ORBIT_BODY_STRIDE = 7;
+const JUPITER_SIZE = 120;
+const MOON_SIZE = 16;
+const COLOR_JUPITER: [number, number, number] = [1, 0.62, 0.33];
+const COLOR_MOON: [number, number, number] = [0.22, 0.74, 0.97];
+const COLOR_TRANSIT: [number, number, number] = [1, 0.55, 0.35];
+const COLOR_OCCULTED: [number, number, number] = [0.55, 0.58, 0.66];
+
+type ViewMode = "telescope" | "orbit";
 
 export default function JupiterLab({ onExit }: JupiterLabProps) {
   const [mode, setMode] = useState<"inner" | "regular" | "all">("inner");
@@ -25,7 +39,13 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [viewSize, setViewSize] = useState(0);
+  const [viewMode, setViewMode] = useState<ViewMode>("telescope");
+  const [fullscreenMode, setFullscreenMode] = useState(false);
+  const [rendererReady, setRendererReady] = useState(false);
   const viewRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const viewportShellRef = useRef<HTMLDivElement | null>(null);
+  const rendererRef = useRef<JupiterRenderer | null>(null);
   const etagRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const inFlightRef = useRef(false);
@@ -115,15 +135,87 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
   }, [fetchScene]);
 
   useEffect(() => {
+    if (viewMode !== "telescope") return;
     if (typeof ResizeObserver === "undefined") return;
     if (!viewRef.current) return;
+    setViewSize(viewRef.current.clientWidth);
     const observer = new ResizeObserver(() => {
       if (!viewRef.current) return;
       setViewSize(viewRef.current.clientWidth);
     });
     observer.observe(viewRef.current);
     return () => observer.disconnect();
-  }, []);
+  }, [viewMode]);
+
+  useEffect(() => {
+    if (viewMode !== "orbit") return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const renderer = new JupiterRenderer(canvas);
+    rendererRef.current = renderer;
+    try {
+      renderer.init();
+      renderer.setDistanceLimits(ORBIT_MIN_DISTANCE, ORBIT_MAX_DISTANCE);
+      renderer.resetCamera(ORBIT_DEFAULT_DISTANCE);
+      renderer.resize();
+      renderer.render();
+      setRendererReady(true);
+    } catch (err) {
+      console.error(err);
+      setRendererReady(false);
+    }
+    const onResize = () => {
+      renderer.resize();
+      renderer.render();
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      renderer.dispose();
+      rendererRef.current = null;
+      setRendererReady(false);
+    };
+  }, [viewMode]);
+
+  useEffect(() => {
+    if (!rendererReady || viewMode !== "orbit") return;
+    const renderer = rendererRef.current;
+    const shell = viewportShellRef.current;
+    if (!renderer || !shell || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      renderer.resize();
+      renderer.render();
+    });
+    observer.observe(shell);
+    return () => observer.disconnect();
+  }, [rendererReady, viewMode]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement && fullscreenMode) {
+        setFullscreenMode(false);
+      }
+      const renderer = rendererRef.current;
+      if (renderer) {
+        renderer.resize();
+        renderer.render();
+      }
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, [fullscreenMode]);
+
+  useEffect(() => {
+    if (viewMode === "telescope" && fullscreenMode) {
+      if (typeof document !== "undefined" && document.fullscreenElement) {
+        document.exitFullscreen?.().catch(() => {
+          /* ignore fullscreen errors */
+        });
+      }
+      setFullscreenMode(false);
+    }
+  }, [viewMode, fullscreenMode]);
 
   const sortedMoons = useMemo(() => {
     if (!scene) return [];
@@ -138,32 +230,236 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
   const pixelsPerArcsec = viewSize ? viewSize / fovArcsec : 0;
   const center = viewSize / 2;
   const jupiterRadiusPx = scene ? scene.jupiter.angularRadiusArcsec * pixelsPerArcsec : 0;
+  const orbitBodies = useMemo(() => (scene ? buildOrbitBodies(scene) : null), [scene]);
+
+  useEffect(() => {
+    if (!rendererReady || viewMode !== "orbit" || !orbitBodies) return;
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    renderer.setBodies({ data: orbitBodies.buffer, count: orbitBodies.count });
+  }, [rendererReady, viewMode, orbitBodies]);
+
+  useEffect(() => {
+    if (!rendererReady || viewMode !== "orbit") return;
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    const raf = requestAnimationFrame(() => {
+      renderer.resize();
+      renderer.render();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [rendererReady, viewMode, fullscreenMode]);
+
+  useEffect(() => {
+    if (!rendererReady || viewMode !== "orbit") return;
+    const canvas = canvasRef.current;
+    const renderer = rendererRef.current;
+    if (!canvas || !renderer) return;
+    const activePointers = new Map<number, { x: number; y: number }>();
+    let draggingId: number | null = null;
+    let lastX = 0;
+    let lastY = 0;
+    let lastPinchDistance: number | null = null;
+    const dragScale = 0.006;
+    const pinchScale = 0.0025;
+
+    const updatePointer = (e: PointerEvent) => {
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    };
+
+    const currentPinchDistance = () => {
+      if (activePointers.size < 2) return 0;
+      const [a, b] = Array.from(activePointers.values());
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    };
+
+    const onDown = (e: PointerEvent) => {
+      updatePointer(e);
+      if (activePointers.size === 1) {
+        draggingId = e.pointerId;
+        lastX = e.clientX;
+        lastY = e.clientY;
+      } else {
+        draggingId = null;
+        lastPinchDistance = currentPinchDistance();
+      }
+      canvas.setPointerCapture(e.pointerId);
+    };
+
+    const onMove = (e: PointerEvent) => {
+      if (!activePointers.has(e.pointerId)) return;
+      updatePointer(e);
+
+      if (activePointers.size >= 2) {
+        const dist = currentPinchDistance();
+        if (lastPinchDistance !== null && dist > 0) {
+          const delta = lastPinchDistance - dist;
+          renderer.zoom(delta * pinchScale);
+        }
+        lastPinchDistance = dist;
+        return;
+      }
+
+      lastPinchDistance = null;
+      if (draggingId === e.pointerId) {
+        const dx = e.clientX - lastX;
+        const dy = e.clientY - lastY;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        renderer.orbit(dx * dragScale, -dy * dragScale);
+      }
+    };
+
+    const onUp = (e: PointerEvent) => {
+      activePointers.delete(e.pointerId);
+      if (draggingId === e.pointerId) {
+        draggingId = null;
+      }
+      if (activePointers.size < 2) {
+        lastPinchDistance = null;
+      }
+      try {
+        canvas.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignored */
+      }
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      renderer.zoom(-e.deltaY * 0.002);
+    };
+
+    canvas.addEventListener("pointerdown", onDown);
+    canvas.addEventListener("pointermove", onMove);
+    canvas.addEventListener("pointerup", onUp);
+    canvas.addEventListener("pointercancel", onUp);
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      canvas.removeEventListener("pointerdown", onDown);
+      canvas.removeEventListener("pointermove", onMove);
+      canvas.removeEventListener("pointerup", onUp);
+      canvas.removeEventListener("pointercancel", onUp);
+      canvas.removeEventListener("wheel", onWheel);
+    };
+  }, [rendererReady, viewMode]);
+
+  const enterFullscreenMode = () => {
+    setFullscreenMode(true);
+    const shell = viewportShellRef.current;
+    if (shell?.requestFullscreen) {
+      shell.requestFullscreen().catch(() => {
+        /* ignore fullscreen errors */
+      });
+    }
+  };
+
+  const exitFullscreenMode = () => {
+    setFullscreenMode(false);
+    if (typeof document !== "undefined" && document.fullscreenElement) {
+      document.exitFullscreen?.().catch(() => {
+        /* ignore fullscreen errors */
+      });
+    }
+  };
+
+  const toggleFullscreenMode = () => {
+    if (fullscreenMode) {
+      exitFullscreenMode();
+    } else {
+      enterFullscreenMode();
+    }
+  };
+
+  const enterOrbitView = () => {
+    setViewMode("orbit");
+  };
+
+  const exitOrbitView = () => {
+    if (fullscreenMode) {
+      exitFullscreenMode();
+    }
+    setViewMode("telescope");
+  };
 
   return (
-    <div className="page">
-      <header className="title-banner">
-        <div className="title-text">
-          <h1>Jupiter Lab</h1>
-          <p className="title-subtitle">Moon position planning for amateur astronomers.</p>
-        </div>
-        <div className="title-actions">
-          <button className="btn secondary" type="button" onClick={() => fetchScene(true)}>
-            Refresh
-          </button>
-          <button className="btn ghost" type="button" onClick={onExit}>
-            All Labs
-          </button>
-        </div>
-      </header>
+    <div className={`page ${fullscreenMode ? "is-immersive" : ""}`}>
+      {!fullscreenMode && (
+        <header className="title-banner">
+          <div className="title-text">
+            <h1>Jupiter Lab</h1>
+            <p className="title-subtitle">Moon position planning for amateur astronomers.</p>
+          </div>
+          <div className="title-actions">
+            <button className="btn secondary" type="button" onClick={() => fetchScene(true)}>
+              Refresh
+            </button>
+            <button className="btn ghost" type="button" onClick={onExit}>
+              All Labs
+            </button>
+            <button
+              className={`btn ${viewMode === "telescope" ? "primary" : "secondary"}`}
+              type="button"
+              onClick={exitOrbitView}
+            >
+              Telescope view
+            </button>
+            <button
+              className={`btn ${viewMode === "orbit" ? "primary" : "secondary"}`}
+              type="button"
+              onClick={enterOrbitView}
+            >
+              Orbit 3D
+            </button>
+          </div>
+        </header>
+      )}
 
       <div className="layout jupiter-layout">
         <section className="panel viewport-panel">
           <div className="panel-heading-row">
-            <div className="panel-heading">2D telescope view</div>
+            <div className="panel-heading">{viewMode === "orbit" ? "3D orbit view" : "2D telescope view"}</div>
             <div className={`title-status ${loading ? "is-loading" : ""}`}>
               {loading ? "Updating..." : lastUpdated ? `Updated ${lastUpdated}` : "Awaiting data"}
             </div>
           </div>
+          {viewMode === "orbit" ? (
+            <>
+              {!fullscreenMode && (
+                <div className="viewport-toolbar">
+                  <button className="btn ghost" type="button" onClick={exitOrbitView}>
+                    Back to telescope
+                  </button>
+                  <button className="fullscreen-btn" onClick={toggleFullscreenMode} type="button">
+                    Full Screen
+                  </button>
+                </div>
+              )}
+              <div className="canvas-shell" ref={viewportShellRef}>
+                <canvas ref={canvasRef} className="viewport" />
+                <div className="view-overlay-stack">
+                  {!fullscreenMode && (
+                    <div className={`scene-badge ${loading ? "is-loading" : ""}`}>
+                      <div className="scene-title">Jupiter system</div>
+                      <div className="scene-meta">Drag to orbit around the moons</div>
+                    </div>
+                  )}
+                </div>
+                {fullscreenMode && (
+                  <div className="view-actions">
+                    <button className="fullscreen-btn is-active" onClick={toggleFullscreenMode} type="button">
+                      Exit full view
+                    </button>
+                    <button className="fullscreen-btn" onClick={exitOrbitView} type="button">
+                      Back to telescope
+                    </button>
+                  </div>
+                )}
+                {!fullscreenMode && <div className="hint">Drag to orbit | Pinch or scroll to zoom</div>}
+              </div>
+            </>
+          ) : (
+            <>
           <div className="telescope-shell">
             <div className="telescope-view" ref={viewRef}>
               <div className="telescope-grid" />
@@ -253,6 +549,8 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
               <span className="legend-text">Feature</span>
             </div>
           </div>
+            </>
+          )}
         </section>
 
         <section className="panel controls-panel">
@@ -466,4 +764,50 @@ function formatKm(value: number) {
   if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
   if (Math.abs(value) >= 10_000) return `${Math.round(value).toLocaleString()}`;
   return value.toFixed(2);
+}
+
+function buildOrbitBodies(scene: SceneResponse) {
+  const maxRangeKm = Math.max(
+    JUPITER_RADIUS_KM,
+    ...scene.moons.map((moon) => moon.system.rangeFromJupiterKm)
+  );
+  const scale = maxRangeKm > 0 ? 1 / maxRangeKm : 1;
+  const bodyCount = scene.moons.length + 1;
+  const buffer = new Float32Array(bodyCount * ORBIT_BODY_STRIDE);
+
+  writeBody(buffer, 0, 0, 0, 0, JUPITER_SIZE, COLOR_JUPITER);
+
+  let cursor = ORBIT_BODY_STRIDE;
+  for (const moon of scene.moons) {
+    const pos = moon.system.jupiterCentricKm;
+    const size = moon.events?.occulted ? MOON_SIZE * 0.8 : MOON_SIZE;
+    writeBody(buffer, cursor, pos.x * scale, pos.y * scale, pos.z * scale, size, pickMoonColor(moon));
+    cursor += ORBIT_BODY_STRIDE;
+  }
+
+  return { buffer, count: bodyCount, scale };
+}
+
+function pickMoonColor(moon: SceneResponse["moons"][number]) {
+  if (moon.events?.occulted) return COLOR_OCCULTED;
+  if (moon.events?.transit) return COLOR_TRANSIT;
+  return COLOR_MOON;
+}
+
+function writeBody(
+  buffer: Float32Array,
+  offset: number,
+  x: number,
+  y: number,
+  z: number,
+  size: number,
+  color: [number, number, number]
+) {
+  buffer[offset + 0] = x;
+  buffer[offset + 1] = y;
+  buffer[offset + 2] = z;
+  buffer[offset + 3] = size;
+  buffer[offset + 4] = color[0];
+  buffer[offset + 5] = color[1];
+  buffer[offset + 6] = color[2];
 }
