@@ -2,4 +2,7 @@ node_modules
 dist
 .vite
 *.log
+data/spice/*
+!data/spice/meta/
+!data/spice/meta/jupiter.tm
 

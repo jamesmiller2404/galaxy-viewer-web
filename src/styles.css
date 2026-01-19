@@ -1183,6 +1183,221 @@ h1 {
   line-height: 1.5;
 }
 
+.jupiter-layout {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+}
+
+.telescope-shell {
+  display: grid;
+  gap: 12px;
+}
+
+.telescope-view {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 14px;
+  border: 1px solid var(--panel-border);
+  background: radial-gradient(circle at 30% 30%, rgba(56, 189, 248, 0.18), transparent 45%),
+    radial-gradient(circle at 70% 70%, rgba(94, 234, 212, 0.12), transparent 50%),
+    rgba(2, 6, 23, 0.9);
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04), 0 18px 38px rgba(0, 0, 0, 0.45);
+}
+
+.telescope-grid {
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: 20% 20%;
+  opacity: 0.35;
+}
+
+.telescope-axis {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.telescope-axis-north {
+  left: 50%;
+  top: 0;
+  width: 1px;
+  height: 100%;
+}
+
+.telescope-axis-east {
+  top: 50%;
+  left: 0;
+  height: 1px;
+  width: 100%;
+}
+
+.jupiter-disk {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, rgba(255, 204, 112, 0.9), rgba(255, 140, 90, 0.4));
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 0 30px rgba(255, 140, 90, 0.3);
+}
+
+.moon-dot {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--sky);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
+}
+
+.moon-dot.is-transit {
+  background: var(--accent);
+  box-shadow: 0 0 16px rgba(255, 140, 90, 0.6);
+}
+
+.moon-dot.is-occulted {
+  background: rgba(255, 255, 255, 0.3);
+  box-shadow: none;
+}
+
+.telescope-footer {
+  display: grid;
+  gap: 10px;
+}
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--sky);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+}
+
+.legend-dot.is-transit {
+  background: var(--accent);
+  box-shadow: 0 0 12px rgba(255, 140, 90, 0.6);
+}
+
+.legend-dot.is-occulted {
+  background: rgba(255, 255, 255, 0.3);
+  box-shadow: none;
+}
+
+.legend-text {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.title-status.is-loading {
+  color: var(--accent);
+}
+
+.status-error {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(248, 113, 113, 0.5);
+  background: rgba(248, 113, 113, 0.12);
+  color: #fecaca;
+  font-size: 13px;
+}
+
+.moon-table,
+.vector-table {
+  display: grid;
+  gap: 8px;
+}
+
+.moon-row,
+.vector-row {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.moon-name,
+.vector-name {
+  font-weight: 700;
+}
+
+.moon-meta {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.moon-class {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.moon-offsets {
+  font-variant-numeric: tabular-nums;
+  color: var(--sky);
+  font-size: 13px;
+}
+
+.moon-events {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.status-chip.is-transit {
+  border-color: rgba(255, 140, 90, 0.6);
+  color: #ffd1b8;
+  background: rgba(255, 140, 90, 0.18);
+}
+
+.status-chip.is-occulted {
+  border-color: rgba(148, 163, 184, 0.5);
+  color: #cbd5f5;
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.vector-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.vector-range {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .preset-card-top {
   display: grid;
   gap: 6px;
