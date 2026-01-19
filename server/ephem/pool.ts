@@ -23,8 +23,7 @@ export class WorkerPool {
     const count = Math.max(1, size);
     this.workers = Array.from({ length: count }, () => {
       const worker = new Worker(workerUrl, {
-        type: "module",
-        execArgv: ["--loader", "tsx"]
+        type: "module"
       });
       const slot = { worker, busy: false };
       worker.on("message", (msg: { id: number; ok: boolean; result?: unknown; error?: string }) => {
@@ -40,6 +39,13 @@ export class WorkerPool {
         this.drainQueue();
       });
       worker.on("error", (error) => {
+        console.error("SPICE worker error:", error);
+        this.failAll(error);
+      });
+      worker.on("exit", (code) => {
+        if (code === 0) return;
+        const error = new Error(`SPICE worker exited with code ${code}`);
+        console.error(error.message);
         this.failAll(error);
       });
       return slot;

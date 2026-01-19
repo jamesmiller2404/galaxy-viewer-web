@@ -49,4 +49,33 @@ export type SceneResponse = {
       occulted?: boolean;
     };
   }>;
+  features: SurfaceFeature[];
+};
+
+export type SurfaceFeature = {
+  key: string;
+  displayName: string;
+  system: {
+    latDeg: number;
+    lonDeg: number;
+  };
+  sky: {
+    offsetArcsec: {
+      east: number;
+      north: number;
+      separation: number;
+      positionAngleDeg: number;
+    };
+  };
+  appearance: {
+    onDisk: boolean;
+    visible: boolean;
+    sizeArcsec: {
+      eastWest: number;
+      northSouth: number;
+    };
+  };
+  style?: {
+    color?: string;
+  };
 };

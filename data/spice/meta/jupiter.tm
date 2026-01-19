@@ -2,7 +2,7 @@ KPL/MK
 
 \begindata
 
-PATH_VALUES = ( '/data/spice' )
+PATH_VALUES = ( 'data/spice' )
 PATH_SYMBOLS = ( 'K' )
 
 KERNELS_TO_LOAD = (
@@ -15,8 +15,8 @@ KERNELS_TO_LOAD = (
   '$K/spk/planets/de442.bsp'
   '$K/spk/jupiter/jup365.bsp'
 
-  '$K/fk/jup347.cmt'        # optional; name/ID mappings for jup347
-  '$K/spk/jupiter/jup347.bsp' # optional; irregular satellites
+  '$K/fk/jup347.cmt'
+  '$K/spk/jupiter/jup347.bsp'
 )
 
 \begintext

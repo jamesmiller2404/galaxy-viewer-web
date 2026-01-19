@@ -9,7 +9,9 @@ export type SpiceApi = {
 export async function loadSpice(): Promise<SpiceApi> {
   try {
     const mod = await import("@gamergenic/js-spice");
-    const api = (mod.default ?? mod) as SpiceApi;
+    const api = (mod as { spice?: SpiceApi; default?: SpiceApi | { spice?: SpiceApi } }).spice ??
+      (mod as { default?: { spice?: SpiceApi } }).default?.spice ??
+      (mod.default ?? mod) as SpiceApi;
     if (!api?.spkezr || !api?.furnsh) {
       throw new Error("Missing expected CSPICE bindings.");
     }

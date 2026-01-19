@@ -3,8 +3,10 @@ import path from "node:path";
 import { parentPort } from "node:worker_threads";
 import { loadSpice, type SpiceApi } from "./spice";
 import { MOON_CATALOG } from "./catalog";
+import { SURFACE_FEATURES } from "./features";
 import { classForTarget, precisionForTarget, targetsForMode } from "./targets";
 import {
+  add,
   computeOffsets,
   dot,
   geodeticToEcef,
@@ -12,8 +14,10 @@ import {
   norm,
   raDecFromVec,
   sub,
-  unit
+  unit,
+  wrapDegrees
 } from "./utils";
+import { ARCSEC_PER_RAD, DEG2RAD } from "./constants";
 import type { OrbitsRequest, OrbitsResponse, SceneRequest, SceneResponse, Vec3 } from "./types";
 
 type WorkerRequest =
@@ -54,9 +58,20 @@ function extractState(result: unknown) {
     }
   }
   if (result && typeof result === "object") {
-    const maybe = result as { state?: number[]; lt?: number; lightTime?: number };
+    const maybe = result as {
+      state?: number[] | { r?: number[]; v?: number[] };
+      lt?: number;
+      lightTime?: number;
+    };
     if (Array.isArray(maybe.state)) {
       return { state: maybe.state, lt: maybe.lt ?? maybe.lightTime };
+    }
+    if (maybe.state && typeof maybe.state === "object") {
+      const r = (maybe.state as { r?: number[] }).r;
+      const v = (maybe.state as { v?: number[] }).v;
+      if (Array.isArray(r) && Array.isArray(v)) {
+        return { state: [...r, ...v], lt: maybe.lt ?? maybe.lightTime };
+      }
     }
   }
   throw new Error("Unexpected spkezr response shape.");
@@ -116,6 +131,7 @@ async function computeScene(args: SceneRequest): Promise<SceneResponse> {
   const api = await ensureSpice();
   const abcorr = args.quality === "high" ? "LT+S" : "LT";
   const et = api.str2et(args.timeUTC);
+  const bodyToJ2000 = api.pxform("IAU_JUPITER", "J2000", et) as number[] | number[][];
   let observerOffset: Vec3 | null = null;
   if (args.observer.kind === "topocentric") {
     const obsEcef = geodeticToEcef(args.observer.latDeg, args.observer.lonDeg, args.observer.altM);
@@ -170,6 +186,56 @@ async function computeScene(args: SceneRequest): Promise<SceneResponse> {
     });
   }
 
+  const features = SURFACE_FEATURES.map((feature) => {
+    const baseLonDeg = feature.lonDeg;
+    const driftDegPerDay = feature.driftDegPerDay ?? 0;
+    const referenceUTC = feature.referenceUTC;
+    const refEt = referenceUTC ? api.str2et(referenceUTC) : et;
+    const dtDays = (et - refEt) / 86400;
+    const lonDeg = wrapDegrees(baseLonDeg + driftDegPerDay * dtDays);
+    const latRad = feature.latDeg * DEG2RAD;
+    const lonRad = lonDeg * DEG2RAD;
+    const cosLat = Math.cos(latRad);
+    const featureBody = {
+      x: jupiterRadius * cosLat * Math.cos(lonRad),
+      y: jupiterRadius * cosLat * Math.sin(lonRad),
+      z: jupiterRadius * Math.sin(latRad)
+    };
+    const featureJ2000 = mat3MultiplyVec(bodyToJ2000, featureBody);
+    const featureToObserver = add(jupiterPos, featureJ2000);
+    const featureRaDec = raDecFromVec(featureToObserver);
+    const offsets = computeOffsets(featureRaDec.raRad, featureRaDec.decRad, jupiterRaDec.raRad, jupiterRaDec.decRad);
+    const cosAlpha = Math.max(0, -dot(unit(featureJ2000), lineOfSight));
+    const onDisk = offsets.separation <= angularRadiusArcsec;
+    const visible = onDisk && cosAlpha > 0;
+    const distanceKm = Math.max(jupiterRaDec.rangeKm, 1e-9);
+    const sizeScale = cosAlpha;
+    const sizeArcsec = {
+      eastWest: (feature.sizeKm.eastWest / distanceKm) * ARCSEC_PER_RAD * sizeScale,
+      northSouth: (feature.sizeKm.northSouth / distanceKm) * ARCSEC_PER_RAD * sizeScale
+    };
+
+    return {
+      key: feature.key,
+      displayName: feature.displayName,
+      system: { latDeg: feature.latDeg, lonDeg },
+      sky: {
+        offsetArcsec: {
+          east: offsets.eastArcsec,
+          north: offsets.northArcsec,
+          separation: offsets.separation,
+          positionAngleDeg: offsets.positionAngleDeg
+        }
+      },
+      appearance: {
+        onDisk,
+        visible,
+        sizeArcsec
+      },
+      style: feature.color ? { color: feature.color } : undefined
+    };
+  });
+
   return {
     meta: {
       requestTimeUTC: args.timeUTC,
@@ -198,7 +264,8 @@ async function computeScene(args: SceneRequest): Promise<SceneResponse> {
       distanceKm: jupiterRaDec.rangeKm,
       angularRadiusArcsec
     },
-    moons
+    moons,
+    features
   };
 }
 

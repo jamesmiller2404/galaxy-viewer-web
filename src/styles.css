@@ -1261,6 +1261,16 @@ h1 {
   box-shadow: none;
 }
 
+.jupiter-feature {
+  position: absolute;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  background: #ff6b4a;
+  box-shadow: 0 0 12px rgba(255, 107, 74, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  opacity: 0.9;
+}
+
 .telescope-footer {
   display: grid;
   gap: 10px;
@@ -1293,6 +1303,11 @@ h1 {
   box-shadow: none;
 }
 
+.legend-dot.is-feature {
+  background: #ff6b4a;
+  box-shadow: 0 0 12px rgba(255, 107, 74, 0.55);
+}
+
 .legend-text {
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -1313,13 +1328,15 @@ h1 {
 }
 
 .moon-table,
-.vector-table {
+.vector-table,
+.feature-table {
   display: grid;
   gap: 8px;
 }
 
 .moon-row,
-.vector-row {
+.vector-row,
+.feature-row {
   display: grid;
   gap: 6px;
   padding: 10px;
@@ -1329,7 +1346,8 @@ h1 {
 }
 
 .moon-name,
-.vector-name {
+.vector-name,
+.feature-name {
   font-weight: 700;
 }
 
@@ -1351,7 +1369,26 @@ h1 {
   font-size: 13px;
 }
 
+.feature-offsets {
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  font-size: 13px;
+}
+
 .moon-events {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.feature-meta {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.feature-status {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
@@ -1377,6 +1414,18 @@ h1 {
 }
 
 .status-chip.is-occulted {
+  border-color: rgba(148, 163, 184, 0.5);
+  color: #cbd5f5;
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.status-chip.is-feature {
+  border-color: rgba(255, 107, 74, 0.6);
+  color: #ffd1c4;
+  background: rgba(255, 107, 74, 0.18);
+}
+
+.status-chip.is-feature-hidden {
   border-color: rgba(148, 163, 184, 0.5);
   color: #cbd5f5;
   background: rgba(148, 163, 184, 0.1);

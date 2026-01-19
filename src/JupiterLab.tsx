@@ -9,6 +9,7 @@ const DEFAULT_FOV_ARCSEC = 240;
 const MIN_FOV_ARCSEC = 80;
 const MAX_FOV_ARCSEC = 1600;
 const REFRESH_MS = 4000;
+const REQUEST_TIMEOUT_MS = 120000;
 
 export default function JupiterLab({ onExit }: JupiterLabProps) {
   const [mode, setMode] = useState<"inner" | "regular" | "all">("inner");
@@ -27,60 +28,90 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
   const viewRef = useRef<HTMLDivElement | null>(null);
   const etagRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const inFlightRef = useRef(false);
+  const activeRequestRef = useRef(0);
 
-  const fetchScene = useCallback(async () => {
-    const params = new URLSearchParams();
-    params.set("t", "now");
-    params.set("mode", mode);
-    params.set("quality", quality);
-    params.set("frame3d", frame3d);
-
-    const lat = toNumber(latInput);
-    const lon = toNumber(lonInput);
-    const alt = toNumber(altInput);
-    if (useLocation && lat !== null && lon !== null) {
-      params.set("lat", lat.toFixed(4));
-      params.set("lon", lon.toFixed(4));
-      if (alt !== null) {
-        params.set("alt", alt.toFixed(0));
+  const fetchScene = useCallback(
+    async (force = false) => {
+      if (inFlightRef.current && !force) return;
+      if (force && abortRef.current) {
+        abortRef.current.abort();
       }
-    }
 
-    const url = `/api/jupiter/scene?${params.toString()}`;
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setLoading(true);
-    setError(null);
+      const requestId = activeRequestRef.current + 1;
+      activeRequestRef.current = requestId;
+      inFlightRef.current = true;
 
-    try {
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: etagRef.current ? { "If-None-Match": etagRef.current } : undefined
-      });
-      if (response.status === 304) {
+      const params = new URLSearchParams();
+      params.set("t", "now");
+      params.set("mode", mode);
+      params.set("quality", quality);
+      params.set("frame3d", frame3d);
+
+      const lat = toNumber(latInput);
+      const lon = toNumber(lonInput);
+      const alt = toNumber(altInput);
+      if (useLocation && lat !== null && lon !== null) {
+        params.set("lat", lat.toFixed(4));
+        params.set("lon", lon.toFixed(4));
+        if (alt !== null) {
+          params.set("alt", alt.toFixed(0));
+        }
+      }
+
+      const url = `/api/jupiter/scene?${params.toString()}`;
+      const controller = new AbortController();
+      abortRef.current = controller;
+      let timedOut = false;
+      const timeoutId = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, REQUEST_TIMEOUT_MS);
+      setLoading(true);
+      setError(null);
+
+      try {
+        const response = await fetch(url, {
+          signal: controller.signal,
+          headers: etagRef.current ? { "If-None-Match": etagRef.current } : undefined
+        });
+        if (response.status === 304) {
+          setLoading(false);
+          return;
+        }
+        if (!response.ok) {
+          throw new Error(`API error ${response.status}`);
+        }
+        const data = (await response.json()) as SceneResponse;
+        setScene(data);
+        etagRef.current = response.headers.get("ETag");
+        setLastUpdated(new Date().toLocaleTimeString());
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          if (timedOut) {
+            setError(`Timed out waiting for the SPICE backend (${Math.round(REQUEST_TIMEOUT_MS / 1000)}s).`);
+          }
+          return;
+        }
+        setError(err instanceof Error ? err.message : "Failed to load scene.");
+      } finally {
+        window.clearTimeout(timeoutId);
+        if (activeRequestRef.current === requestId) {
+          inFlightRef.current = false;
+        }
         setLoading(false);
-        return;
       }
-      if (!response.ok) {
-        throw new Error(`API error ${response.status}`);
-      }
-      const data = (await response.json()) as SceneResponse;
-      setScene(data);
-      etagRef.current = response.headers.get("ETag");
-      setLastUpdated(new Date().toLocaleTimeString());
-    } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") return;
-      setError(err instanceof Error ? err.message : "Failed to load scene.");
-    } finally {
-      setLoading(false);
-    }
-  }, [mode, quality, frame3d, useLocation, latInput, lonInput, altInput]);
+    },
+    [mode, quality, frame3d, useLocation, latInput, lonInput, altInput]
+  );
 
   useEffect(() => {
     fetchScene();
     const timer = window.setInterval(fetchScene, REFRESH_MS);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      abortRef.current?.abort();
+    };
   }, [fetchScene]);
 
   useEffect(() => {
@@ -99,6 +130,11 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
     return [...scene.moons].sort((a, b) => a.sky.offsetArcsec.separation - b.sky.offsetArcsec.separation);
   }, [scene]);
 
+  const visibleFeatures = useMemo(() => {
+    if (!scene) return [];
+    return scene.features.filter((feature) => feature.appearance.visible);
+  }, [scene]);
+
   const pixelsPerArcsec = viewSize ? viewSize / fovArcsec : 0;
   const center = viewSize / 2;
   const jupiterRadiusPx = scene ? scene.jupiter.angularRadiusArcsec * pixelsPerArcsec : 0;
@@ -111,7 +147,7 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
           <p className="title-subtitle">Moon position planning for amateur astronomers.</p>
         </div>
         <div className="title-actions">
-          <button className="btn secondary" type="button" onClick={fetchScene}>
+          <button className="btn secondary" type="button" onClick={() => fetchScene(true)}>
             Refresh
           </button>
           <button className="btn ghost" type="button" onClick={onExit}>
@@ -144,6 +180,30 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
                   }}
                 />
               )}
+              {visibleFeatures.map((feature) => {
+                const x = center + feature.sky.offsetArcsec.east * pixelsPerArcsec;
+                const y = center - feature.sky.offsetArcsec.north * pixelsPerArcsec;
+                const width = feature.appearance.sizeArcsec.eastWest * pixelsPerArcsec;
+                const height = feature.appearance.sizeArcsec.northSouth * pixelsPerArcsec;
+                const safeWidth = Number.isFinite(width) ? Math.max(width, 3) : 3;
+                const safeHeight = Number.isFinite(height) ? Math.max(height, 3) : 3;
+                return (
+                  <div
+                    key={feature.key}
+                    className="jupiter-feature"
+                    style={{
+                      left: `${x}px`,
+                      top: `${y}px`,
+                      width: `${safeWidth}px`,
+                      height: `${safeHeight}px`,
+                      backgroundColor: feature.style?.color
+                    }}
+                    title={`${feature.displayName} | Lat ${feature.system.latDeg.toFixed(1)}° Lon ${feature.system.lonDeg.toFixed(
+                      1
+                    )}°`}
+                  />
+                );
+              })}
               {scene?.moons.map((moon) => {
                 const x = center + moon.sky.offsetArcsec.east * pixelsPerArcsec;
                 const y = center - moon.sky.offsetArcsec.north * pixelsPerArcsec;
@@ -189,6 +249,8 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
               <span className="legend-text">Transit</span>
               <span className="legend-dot is-occulted" />
               <span className="legend-text">Occulted</span>
+              <span className="legend-dot is-feature" />
+              <span className="legend-text">Feature</span>
             </div>
           </div>
         </section>
@@ -330,6 +392,33 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
                       {moon.events?.transit && <span className="status-chip is-transit">Transit</span>}
                       {moon.events?.occulted && <span className="status-chip is-occulted">Occulted</span>}
                       {!moon.events?.transit && !moon.events?.occulted && <span className="status-chip">Clear</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="section">
+              <div className="section-title">Surface features</div>
+              <div className="feature-table">
+                {(scene?.features ?? []).length === 0 && <div className="title-status">No features yet.</div>}
+                {(scene?.features ?? []).map((feature) => (
+                  <div key={feature.key} className="feature-row">
+                    <div className="feature-name">{feature.displayName}</div>
+                    <div className="feature-meta">
+                      Lat {feature.system.latDeg.toFixed(1)}° / Lon {feature.system.lonDeg.toFixed(1)}°
+                    </div>
+                    <div className="feature-offsets">
+                      E {formatArcsec(feature.sky.offsetArcsec.east)}" N {formatArcsec(feature.sky.offsetArcsec.north)}"
+                    </div>
+                    <div className="feature-status">
+                      {feature.appearance.visible ? (
+                        <span className="status-chip is-feature">Visible</span>
+                      ) : feature.appearance.onDisk ? (
+                        <span className="status-chip is-feature-hidden">Behind limb</span>
+                      ) : (
+                        <span className="status-chip">Off disk</span>
+                      )}
                     </div>
                   </div>
                 ))}
