@@ -589,8 +589,7 @@ export default function App() {
               type="button"
               onClick={enterCollisionMode}
             >
-              Collision Lab{" "}
-              <span className="cta-badge">New</span>
+              Collision Lab
             </button>
           </div>
         </header>

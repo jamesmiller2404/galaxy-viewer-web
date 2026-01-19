@@ -8,7 +8,12 @@ export interface Preset {
 export const presets: Preset[] = [
   {
     name: "Andromeda (M31)",
-    params: { ...defaultParameters },
+    params: {
+      ...defaultParameters,
+      armCount: 2,
+      armTwist: 8.5,
+      armSpread: 0.24,
+    },
   },
   {
     name: "Elliptical (E0-E7)",

@@ -47,6 +47,11 @@ const useSharedBuffer =
   (self as unknown as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
 const BH_SOFTENING_SCALE = 0.25;
 const BH_SOFTENING_MIN = 0.4;
+const HALO_CORE_MIN_FRACTION = 0.12;
+const HALO_CORE_MAX_FRACTION = 0.45;
+const HALO_MATCH_FRACTION = 0.5;
+const DISK_VELOCITY_JITTER = 0.06;
+const BULGE_ROTATION_SCALE = 0.2;
 
 let positions: Float32Array | null = null;
 let positionsBuffer: ArrayBufferLike | null = null;
@@ -60,8 +65,8 @@ let substeps = 1;
 let gConst = 1;
 let softening = 1;
 let bhSoftening = 1;
-let c1 = { x: 0, y: 0, vx: 0, vy: 0, mass: 1, bhMass: 0 };
-let c2 = { x: 0, y: 0, vx: 0, vy: 0, mass: 1, bhMass: 0 };
+let c1 = { x: 0, y: 0, vx: 0, vy: 0, mass: 1, bhMass: 0, haloV0: 0, haloCore: 1 };
+let c2 = { x: 0, y: 0, vx: 0, vy: 0, mass: 1, bhMass: 0, haloV0: 0, haloCore: 1 };
 let timer: number | null = null;
 let timerIntervalMs = 16;
 let accumStepMs = 0;
@@ -135,6 +140,10 @@ function init(payload: InitPayload) {
     mass: gB.mass,
     bhMass: gB.bhMass
   };
+  c1.haloCore = haloCoreRadius(gA.params);
+  c1.haloV0 = haloVelocity(gA.params, gA.mass, c1.haloCore);
+  c2.haloCore = haloCoreRadius(gB.params);
+  c2.haloV0 = haloVelocity(gB.params, gB.mass, c2.haloCore);
 
   seedGalaxy(gA, 0);
   seedGalaxy(gB, countA);
@@ -152,6 +161,11 @@ function seedGalaxy(galaxy: GalaxyInit, offset: number) {
   const diskRadius = Math.max(1, params.diskRadius);
   const diskEdge = diskRadius * 0.98;
   const armCount = Math.max(1, Math.floor(params.armCount));
+  const armStart = Math.max(0.5, Math.min(diskRadius * 0.9, params.bulgeRadius));
+  const spiralLogMax = Math.log(diskRadius / armStart);
+  const spiralNorm = spiralLogMax > 0 ? 1 / spiralLogMax : 0;
+  const haloCore = haloCoreRadius(params);
+  const haloV0 = haloVelocity(params, galaxy.mass, haloCore);
   const starCount = Math.max(0, Math.floor(params.starCount));
   const bulgeCount = Math.max(0, Math.floor(params.bulgeStarCount));
 
@@ -161,7 +175,8 @@ function seedGalaxy(galaxy: GalaxyInit, offset: number) {
     const armIndex = Math.floor(rand() * armCount);
     const baseRadius = diskRadius * Math.pow(rand(), 1.6);
     const armAngle = (armIndex * Math.PI * 2) / armCount;
-    const twist = params.armTwist * (baseRadius / diskRadius);
+    const radiusForTwist = Math.max(baseRadius, armStart);
+    const twist = params.armTwist * Math.log(radiusForTwist / armStart) * spiralNorm;
     const angleNoise = gaussian() * params.armSpread;
     const angle = armAngle + twist + angleNoise;
     const radialNoise = gaussian() * params.noise * diskRadius * 0.25;
@@ -172,12 +187,13 @@ function seedGalaxy(galaxy: GalaxyInit, offset: number) {
     positions[idx * 2] = galaxy.center[0] + x;
     positions[idx * 2 + 1] = galaxy.center[1] + y;
 
-    // Circular velocity from self potential
-    const accelMag = radialAccel(radius, galaxy.mass, softening) + radialAccel(radius, galaxy.bhMass, bhSoftening);
+    // Circular velocity from halo + SMBH potential for a flatter rotation curve.
+    const accelMag = haloAccelMag(radius, haloV0, haloCore) + radialAccel(radius, galaxy.bhMass, bhSoftening);
     const vCirc = Math.sqrt(Math.max(0, radius * accelMag));
-    const jitter = 0.05 * vCirc;
-    const vx = Math.sin(angle) * (vCirc + jitter * (rand() - 0.5));
-    const vy = -Math.cos(angle) * (vCirc + jitter * (rand() - 0.5));
+    const jitter = DISK_VELOCITY_JITTER * vCirc;
+    const speed = vCirc + jitter * (rand() - 0.5);
+    const vx = Math.sin(angle) * speed;
+    const vy = -Math.cos(angle) * speed;
     velocities[idx * 2] = galaxy.velocity[0] + vx;
     velocities[idx * 2 + 1] = galaxy.velocity[1] + vy;
   }
@@ -195,17 +211,23 @@ function seedGalaxy(galaxy: GalaxyInit, offset: number) {
     const u = rand();
     const invR = invRMin - u * invRange;
     const radius = clamp(1 / invR, rMin, bulgeRadius);
-    const angle = rand() * Math.PI * 2;
+    const armIndex = Math.floor(rand() * armCount);
+    const armAngle = (armIndex * Math.PI * 2) / armCount;
+    const radiusForTwist = Math.max(radius, armStart);
+    const twist = params.armTwist * Math.log(radiusForTwist / armStart) * spiralNorm;
+    const angleNoise = gaussian() * params.armSpread;
+    const angle = armAngle + twist + angleNoise;
     const x = radius * Math.cos(angle);
     const y = radius * Math.sin(angle);
 
     positions[idx * 2] = galaxy.center[0] + x;
     positions[idx * 2 + 1] = galaxy.center[1] + y;
 
-    const accelMag = radialAccel(radius, galaxy.mass, softening) + radialAccel(radius, galaxy.bhMass, bhSoftening);
-    const vCirc = 0.25 * Math.sqrt(Math.max(0, radius * accelMag));
-    const vx = Math.sin(angle) * vCirc;
-    const vy = -Math.cos(angle) * vCirc;
+    const accelMag = haloAccelMag(radius, haloV0, haloCore) + radialAccel(radius, galaxy.bhMass, bhSoftening);
+    const vCirc = Math.sqrt(Math.max(0, radius * accelMag));
+    const vRot = vCirc * BULGE_ROTATION_SCALE;
+    const vx = Math.sin(angle) * vRot;
+    const vy = -Math.cos(angle) * vRot;
     velocities[idx * 2] = galaxy.velocity[0] + vx;
     velocities[idx * 2 + 1] = galaxy.velocity[1] + vy;
   }
@@ -304,9 +326,9 @@ function postFrame() {
 }
 
 function totalAccel(x: number, y: number) {
-  const ax1 = accelFrom(c1.x, c1.y, c1.mass, x, y, gConst, softening);
+  const ax1 = accelFromHalo(c1.x, c1.y, c1.haloV0, c1.haloCore, x, y);
   const ax1bh = accelFrom(c1.x, c1.y, c1.bhMass, x, y, gConst, bhSoftening);
-  const ax2 = accelFrom(c2.x, c2.y, c2.mass, x, y, gConst, softening);
+  const ax2 = accelFromHalo(c2.x, c2.y, c2.haloV0, c2.haloCore, x, y);
   const ax2bh = accelFrom(c2.x, c2.y, c2.bhMass, x, y, gConst, bhSoftening);
   return {
     ax: ax1.ax + ax1bh.ax + ax2.ax + ax2bh.ax,
@@ -336,6 +358,40 @@ function radialAccel(r: number, mass: number, soft: number) {
   const denom = Math.pow(r * r + soft * soft, 1.5);
   if (!denom) return 0;
   return (gConst * mass * r) / denom;
+}
+
+function haloCoreRadius(params: GalaxyParameters) {
+  const diskRadius = Math.max(1, params.diskRadius);
+  const minCore = diskRadius * HALO_CORE_MIN_FRACTION;
+  const maxCore = diskRadius * HALO_CORE_MAX_FRACTION;
+  const fromBulge = params.bulgeRadius * 1.2;
+  return clamp(fromBulge, minCore, maxCore);
+}
+
+function haloVelocity(params: GalaxyParameters, mass: number, haloCore: number) {
+  if (!mass) return 0;
+  const diskRadius = Math.max(1, params.diskRadius);
+  const rRef = Math.max(haloCore * 1.2, diskRadius * HALO_MATCH_FRACTION);
+  const vPoint = Math.sqrt(Math.max(0, rRef * radialAccel(rRef, mass, softening)));
+  if (!vPoint) return 0;
+  return (vPoint * Math.sqrt(rRef * rRef + haloCore * haloCore)) / rRef;
+}
+
+function haloAccelMag(r: number, v0: number, haloCore: number) {
+  if (!v0) return 0;
+  const denom = r * r + haloCore * haloCore;
+  if (!denom) return 0;
+  return (v0 * v0 * r) / denom;
+}
+
+function accelFromHalo(cx: number, cy: number, v0: number, haloCore: number, x: number, y: number) {
+  if (!v0) return { ax: 0, ay: 0 };
+  const rx = x - cx;
+  const ry = y - cy;
+  const denom = rx * rx + ry * ry + haloCore * haloCore;
+  if (!denom) return { ax: 0, ay: 0 };
+  const scale = -(v0 * v0) / denom;
+  return { ax: scale * rx, ay: scale * ry };
 }
 
 function makeGaussian(rand: () => number) {

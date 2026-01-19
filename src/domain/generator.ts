@@ -15,6 +15,9 @@ export async function generateStars(
   const diskRadius = Math.max(1, params.diskRadius);
   const diskEdge = diskRadius * 0.98;
   const armCount = Math.max(1, params.armCount);
+  const armStart = Math.max(0.5, Math.min(diskRadius * 0.9, params.bulgeRadius));
+  const spiralLogMax = Math.log(diskRadius / armStart);
+  const spiralNorm = spiralLogMax > 0 ? 1 / spiralLogMax : 0;
 
   for (let i = 0; i < params.starCount; i++) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
@@ -22,7 +25,8 @@ export async function generateStars(
     const armIndex = Math.floor(random() * armCount);
     const baseRadius = diskRadius * Math.pow(random(), 1.6);
     const armAngle = (armIndex * Math.PI * 2) / armCount;
-    const twist = params.armTwist * (baseRadius / diskRadius);
+    const radiusForTwist = Math.max(baseRadius, armStart);
+    const twist = params.armTwist * Math.log(radiusForTwist / armStart) * spiralNorm;
     const angleNoise = nextGaussian(random) * params.armSpread;
     const angle = armAngle + twist + angleNoise;
 
@@ -61,7 +65,12 @@ export async function generateStars(
     const u = bulgeRand();
     const invR = invRMin - u * invRange;
     const radius = clamp(1 / invR, rMin, bulgeRadius);
-    const angle = bulgeRand() * Math.PI * 2;
+    const armIndex = Math.floor(bulgeRand() * armCount);
+    const armAngle = (armIndex * Math.PI * 2) / armCount;
+    const radiusForTwist = Math.max(radius, armStart);
+    const twist = params.armTwist * Math.log(radiusForTwist / armStart) * spiralNorm;
+    const angleNoise = nextGaussian(bulgeRand) * params.armSpread;
+    const angle = armAngle + twist + angleNoise;
     const sigmaZ = params.verticalThickness * params.bulgeVerticalScale;
     const z = nextGaussian(bulgeRand) * sigmaZ;
     const x = radius * Math.cos(angle);
