@@ -14,6 +14,9 @@ const REQUEST_TIMEOUT_MS = 120000;
 const ORBIT_DEFAULT_DISTANCE = 2.2;
 const ORBIT_MIN_DISTANCE = 0.6;
 const ORBIT_MAX_DISTANCE = 6;
+const ORBIT_DRAG_SCALE = 0.006;
+const ORBIT_PINCH_SCALE = 0.0025;
+const ORBIT_SWITCH_THRESHOLD_PX = 8;
 const JUPITER_RADIUS_KM = 71492;
 const ORBIT_BODY_STRIDE = 7;
 const JUPITER_SIZE = 120;
@@ -61,6 +64,7 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
   const abortRef = useRef<AbortController | null>(null);
   const inFlightRef = useRef(false);
   const activeRequestRef = useRef(0);
+  const telescopeDragRef = useRef<{ id: number | null; x: number; y: number }>({ id: null, x: 0, y: 0 });
 
   const fetchScene = useCallback(
     async (force = false) => {
@@ -159,7 +163,6 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
   }, [viewMode]);
 
   useEffect(() => {
-    if (viewMode !== "orbit") return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const renderer = new JupiterRenderer(canvas);
@@ -186,10 +189,10 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
       rendererRef.current = null;
       setRendererReady(false);
     };
-  }, [viewMode]);
+  }, []);
 
   useEffect(() => {
-    if (!rendererReady || viewMode !== "orbit") return;
+    if (!rendererReady) return;
     const renderer = rendererRef.current;
     const shell = viewportShellRef.current;
     if (!renderer || !shell || typeof ResizeObserver === "undefined") return;
@@ -199,7 +202,7 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
     });
     observer.observe(shell);
     return () => observer.disconnect();
-  }, [rendererReady, viewMode]);
+  }, [rendererReady]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -245,21 +248,21 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
   const referenceLines = useMemo(() => (scene ? buildReferenceLines(scene.earthDirection) : null), [scene]);
 
   useEffect(() => {
-    if (!rendererReady || viewMode !== "orbit" || !orbitBodies) return;
+    if (!rendererReady || !orbitBodies) return;
     const renderer = rendererRef.current;
     if (!renderer) return;
     renderer.setBodies({ data: orbitBodies.buffer, count: orbitBodies.count });
-  }, [rendererReady, viewMode, orbitBodies]);
+  }, [rendererReady, orbitBodies]);
 
   useEffect(() => {
-    if (!rendererReady || viewMode !== "orbit" || !referenceLines) return;
+    if (!rendererReady || !referenceLines) return;
     const renderer = rendererRef.current;
     if (!renderer) return;
     renderer.setReferenceLines({ data: referenceLines.buffer, count: referenceLines.count });
-  }, [rendererReady, viewMode, referenceLines]);
+  }, [rendererReady, referenceLines]);
 
   useEffect(() => {
-    if (!rendererReady || viewMode !== "orbit") return;
+    if (!rendererReady) return;
     const renderer = rendererRef.current;
     if (!renderer) return;
     const raf = requestAnimationFrame(() => {
@@ -279,8 +282,6 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
     let lastX = 0;
     let lastY = 0;
     let lastPinchDistance: number | null = null;
-    const dragScale = 0.006;
-    const pinchScale = 0.0025;
 
     const updatePointer = (e: PointerEvent) => {
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -313,7 +314,7 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
         const dist = currentPinchDistance();
         if (lastPinchDistance !== null && dist > 0) {
           const delta = lastPinchDistance - dist;
-          renderer.zoom(delta * pinchScale);
+          renderer.zoom(delta * ORBIT_PINCH_SCALE);
         }
         lastPinchDistance = dist;
         return;
@@ -325,7 +326,7 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
         const dy = e.clientY - lastY;
         lastX = e.clientX;
         lastY = e.clientY;
-        renderer.orbit(dx * dragScale, -dy * dragScale);
+        renderer.orbit(dx * ORBIT_DRAG_SCALE, -dy * ORBIT_DRAG_SCALE);
       }
     };
 
@@ -394,11 +395,50 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
     setViewMode("orbit");
   };
 
-  const exitOrbitView = () => {
+  const resetToTelescope = () => {
     if (fullscreenMode) {
       exitFullscreenMode();
     }
+    rendererRef.current?.resetCamera(ORBIT_DEFAULT_DISTANCE);
+    telescopeDragRef.current = { id: null, x: 0, y: 0 };
     setViewMode("telescope");
+  };
+
+  const handleTelescopePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (viewMode !== "telescope") return;
+    telescopeDragRef.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleTelescopePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (viewMode !== "telescope") return;
+    const drag = telescopeDragRef.current;
+    if (drag.id !== event.pointerId) return;
+    const dx = event.clientX - drag.x;
+    const dy = event.clientY - drag.y;
+    if (Math.hypot(dx, dy) < ORBIT_SWITCH_THRESHOLD_PX) return;
+    telescopeDragRef.current = { id: null, x: 0, y: 0 };
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      /* ignored */
+    }
+    enterOrbitView();
+    const renderer = rendererRef.current;
+    if (renderer) {
+      renderer.orbit(dx * ORBIT_DRAG_SCALE, -dy * ORBIT_DRAG_SCALE);
+    }
+  };
+
+  const handleTelescopePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (telescopeDragRef.current.id === event.pointerId) {
+      telescopeDragRef.current = { id: null, x: 0, y: 0 };
+    }
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      /* ignored */
+    }
   };
 
   return (
@@ -416,13 +456,13 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
             <button className="btn ghost" type="button" onClick={onExit}>
               All Labs
             </button>
-            <button
-              className={`btn ${viewMode === "telescope" ? "primary" : "secondary"}`}
-              type="button"
-              onClick={exitOrbitView}
-            >
-              Telescope view
-            </button>
+              <button
+                className={`btn ${viewMode === "telescope" ? "primary" : "secondary"}`}
+                type="button"
+                onClick={resetToTelescope}
+              >
+                Reset telescope
+              </button>
             <button
               className={`btn ${viewMode === "orbit" ? "primary" : "secondary"}`}
               type="button"
@@ -442,20 +482,96 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
               {loading ? "Updating..." : lastUpdated ? `Updated ${lastUpdated}` : "Awaiting data"}
             </div>
           </div>
-          {viewMode === "orbit" ? (
-            <>
-              {!fullscreenMode && (
-                <div className="viewport-toolbar">
-                  <button className="btn ghost" type="button" onClick={exitOrbitView}>
-                    Back to telescope
-                  </button>
-                  <button className="fullscreen-btn" onClick={toggleFullscreenMode} type="button">
-                    Full Screen
-                  </button>
+          {viewMode === "orbit" && !fullscreenMode && (
+            <div className="viewport-toolbar">
+              <button className="btn ghost" type="button" onClick={resetToTelescope}>
+                Reset telescope
+              </button>
+              <button className="fullscreen-btn" onClick={toggleFullscreenMode} type="button">
+                Full Screen
+              </button>
+            </div>
+          )}
+          <div className={`canvas-shell ${viewMode === "telescope" ? "is-telescope" : ""}`} ref={viewportShellRef}>
+            <canvas
+              ref={canvasRef}
+              className={`viewport ${viewMode === "telescope" ? "is-telescope" : ""}`}
+            />
+            {viewMode === "telescope" && (
+              <div
+                className="telescope-overlay"
+                onPointerDown={handleTelescopePointerDown}
+                onPointerMove={handleTelescopePointerMove}
+                onPointerUp={handleTelescopePointerUp}
+                onPointerCancel={handleTelescopePointerUp}
+              >
+                <div className="telescope-shell">
+                  <div className="telescope-view" ref={viewRef}>
+                    <div className="telescope-grid" />
+                    <div className="telescope-axis telescope-axis-north" />
+                    <div className="telescope-axis telescope-axis-east" />
+                    {scene && (
+                      <div
+                        className="jupiter-disk"
+                        style={{
+                          width: `${jupiterRadiusPx * 2}px`,
+                          height: `${jupiterRadiusPx * 2}px`,
+                          left: `${center - jupiterRadiusPx}px`,
+                          top: `${center - jupiterRadiusPx}px`
+                        }}
+                      />
+                    )}
+                    {visibleFeatures.map((feature) => {
+                      const x = center + feature.sky.offsetArcsec.east * pixelsPerArcsec;
+                      const y = center - feature.sky.offsetArcsec.north * pixelsPerArcsec;
+                      const width = feature.appearance.sizeArcsec.eastWest * pixelsPerArcsec;
+                      const height = feature.appearance.sizeArcsec.northSouth * pixelsPerArcsec;
+                      const safeWidth = Number.isFinite(width) ? Math.max(width, 3) : 3;
+                      const safeHeight = Number.isFinite(height) ? Math.max(height, 3) : 3;
+                      return (
+                        <div
+                          key={feature.key}
+                          className="jupiter-feature"
+                          style={{
+                            left: `${x}px`,
+                            top: `${y}px`,
+                            width: `${safeWidth}px`,
+                            height: `${safeHeight}px`,
+                            backgroundColor: feature.style?.color
+                          }}
+                          title={`${feature.displayName} | Lat ${feature.system.latDeg.toFixed(1)}° Lon ${feature.system.lonDeg.toFixed(
+                            1
+                          )}°`}
+                        />
+                      );
+                    })}
+                    {scene?.moons.map((moon) => {
+                      const x = center + moon.sky.offsetArcsec.east * pixelsPerArcsec;
+                      const y = center - moon.sky.offsetArcsec.north * pixelsPerArcsec;
+                      const classes = [
+                        "moon-dot",
+                        moon.events?.transit ? "is-transit" : "",
+                        moon.events?.occulted ? "is-occulted" : ""
+                      ]
+                        .filter(Boolean)
+                        .join(" ");
+                      return (
+                        <div
+                          key={moon.key}
+                          className={classes}
+                          style={{ left: `${x}px`, top: `${y}px` }}
+                          title={`${moon.displayName} | E ${formatArcsec(moon.sky.offsetArcsec.east)}" N ${formatArcsec(
+                            moon.sky.offsetArcsec.north
+                          )}"`}
+                        />
+                      );
+                    })}
+                  </div>
                 </div>
-              )}
-              <div className="canvas-shell" ref={viewportShellRef}>
-                <canvas ref={canvasRef} className="viewport" />
+              </div>
+            )}
+            {viewMode === "orbit" && (
+              <>
                 <div className="view-overlay-stack">
                   {!fullscreenMode && (
                     <div className={`scene-badge ${loading ? "is-loading" : ""}`}>
@@ -472,122 +588,58 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
                       <span className="axis-dot axis-y" />
                       <span>Y</span>
                     </div>
-                  <div className="axis-row">
-                    <span className="axis-dot axis-z" />
-                    <span>Z</span>
+                    <div className="axis-row">
+                      <span className="axis-dot axis-z" />
+                      <span>Z</span>
+                    </div>
+                    <div className="axis-row">
+                      <span className="axis-dot axis-earth" />
+                      <span>Earth</span>
+                    </div>
+                    <div className="axis-note">Reference plane: Y = 0 ({frame3d})</div>
                   </div>
-                  <div className="axis-row">
-                    <span className="axis-dot axis-earth" />
-                    <span>Earth</span>
-                  </div>
-                  <div className="axis-note">Reference plane: Y = 0 ({frame3d})</div>
-                </div>
                 </div>
                 {fullscreenMode && (
                   <div className="view-actions">
                     <button className="fullscreen-btn is-active" onClick={toggleFullscreenMode} type="button">
                       Exit full view
                     </button>
-                    <button className="fullscreen-btn" onClick={exitOrbitView} type="button">
-                      Back to telescope
+                    <button className="fullscreen-btn" onClick={resetToTelescope} type="button">
+                      Reset telescope
                     </button>
                   </div>
                 )}
                 {!fullscreenMode && <div className="hint">Drag to orbit | Pinch or scroll to zoom</div>}
-              </div>
-            </>
-          ) : (
-            <>
-          <div className="telescope-shell">
-            <div className="telescope-view" ref={viewRef}>
-              <div className="telescope-grid" />
-              <div className="telescope-axis telescope-axis-north" />
-              <div className="telescope-axis telescope-axis-east" />
-              {scene && (
-                <div
-                  className="jupiter-disk"
-                  style={{
-                    width: `${jupiterRadiusPx * 2}px`,
-                    height: `${jupiterRadiusPx * 2}px`,
-                    left: `${center - jupiterRadiusPx}px`,
-                    top: `${center - jupiterRadiusPx}px`
-                  }}
+              </>
+            )}
+          </div>
+          {viewMode === "telescope" && (
+            <div className="telescope-footer">
+              <label className="field">
+                <div className="field-label">
+                  <span className="field-label-text">Field of view (arcsec)</span>
+                </div>
+                <input
+                  type="range"
+                  min={MIN_FOV_ARCSEC}
+                  max={MAX_FOV_ARCSEC}
+                  step={20}
+                  value={fovArcsec}
+                  onChange={(event) => setFovArcsec(Number(event.target.value))}
                 />
-              )}
-              {visibleFeatures.map((feature) => {
-                const x = center + feature.sky.offsetArcsec.east * pixelsPerArcsec;
-                const y = center - feature.sky.offsetArcsec.north * pixelsPerArcsec;
-                const width = feature.appearance.sizeArcsec.eastWest * pixelsPerArcsec;
-                const height = feature.appearance.sizeArcsec.northSouth * pixelsPerArcsec;
-                const safeWidth = Number.isFinite(width) ? Math.max(width, 3) : 3;
-                const safeHeight = Number.isFinite(height) ? Math.max(height, 3) : 3;
-                return (
-                  <div
-                    key={feature.key}
-                    className="jupiter-feature"
-                    style={{
-                      left: `${x}px`,
-                      top: `${y}px`,
-                      width: `${safeWidth}px`,
-                      height: `${safeHeight}px`,
-                      backgroundColor: feature.style?.color
-                    }}
-                    title={`${feature.displayName} | Lat ${feature.system.latDeg.toFixed(1)}° Lon ${feature.system.lonDeg.toFixed(
-                      1
-                    )}°`}
-                  />
-                );
-              })}
-              {scene?.moons.map((moon) => {
-                const x = center + moon.sky.offsetArcsec.east * pixelsPerArcsec;
-                const y = center - moon.sky.offsetArcsec.north * pixelsPerArcsec;
-                const classes = [
-                  "moon-dot",
-                  moon.events?.transit ? "is-transit" : "",
-                  moon.events?.occulted ? "is-occulted" : ""
-                ]
-                  .filter(Boolean)
-                  .join(" ");
-                return (
-                  <div
-                    key={moon.key}
-                    className={classes}
-                    style={{ left: `${x}px`, top: `${y}px` }}
-                    title={`${moon.displayName} | E ${formatArcsec(moon.sky.offsetArcsec.east)}" N ${formatArcsec(
-                      moon.sky.offsetArcsec.north
-                    )}"`}
-                  />
-                );
-              })}
-            </div>
-          </div>
-          <div className="telescope-footer">
-            <label className="field">
-              <div className="field-label">
-                <span className="field-label-text">Field of view (arcsec)</span>
+                <div className="title-status">FOV: {formatArcsec(fovArcsec)}"</div>
+              </label>
+              <div className="legend-row">
+                <span className="legend-dot" />
+                <span className="legend-text">Moon</span>
+                <span className="legend-dot is-transit" />
+                <span className="legend-text">Transit</span>
+                <span className="legend-dot is-occulted" />
+                <span className="legend-text">Occulted</span>
+                <span className="legend-dot is-feature" />
+                <span className="legend-text">Feature</span>
               </div>
-              <input
-                type="range"
-                min={MIN_FOV_ARCSEC}
-                max={MAX_FOV_ARCSEC}
-                step={20}
-                value={fovArcsec}
-                onChange={(event) => setFovArcsec(Number(event.target.value))}
-              />
-              <div className="title-status">FOV: {formatArcsec(fovArcsec)}"</div>
-            </label>
-            <div className="legend-row">
-              <span className="legend-dot" />
-              <span className="legend-text">Moon</span>
-              <span className="legend-dot is-transit" />
-              <span className="legend-text">Transit</span>
-              <span className="legend-dot is-occulted" />
-              <span className="legend-text">Occulted</span>
-              <span className="legend-dot is-feature" />
-              <span className="legend-text">Feature</span>
             </div>
-          </div>
-            </>
           )}
         </section>
 
