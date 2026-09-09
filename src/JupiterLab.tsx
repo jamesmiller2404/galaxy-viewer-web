@@ -27,8 +27,10 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
   const viewRef = useRef<HTMLDivElement | null>(null);
   const etagRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const inFlightRef = useRef(false);
 
-  const fetchScene = useCallback(async () => {
+  const fetchScene = useCallback(async (options?: { force?: boolean }) => {
+    if (inFlightRef.current && !options?.force) return;
     const params = new URLSearchParams();
     params.set("t", "now");
     params.set("mode", mode);
@@ -47,9 +49,12 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
     }
 
     const url = `/api/jupiter/scene?${params.toString()}`;
-    abortRef.current?.abort();
+    if (options?.force) {
+      abortRef.current?.abort();
+    }
     const controller = new AbortController();
     abortRef.current = controller;
+    inFlightRef.current = true;
     setLoading(true);
     setError(null);
 
@@ -73,6 +78,9 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
       if (err instanceof Error && err.name === "AbortError") return;
       setError(err instanceof Error ? err.message : "Failed to load scene.");
     } finally {
+      if (abortRef.current !== controller) return;
+      abortRef.current = null;
+      inFlightRef.current = false;
       setLoading(false);
     }
   }, [mode, quality, frame3d, useLocation, latInput, lonInput, altInput]);
@@ -111,7 +119,7 @@ export default function JupiterLab({ onExit }: JupiterLabProps) {
           <p className="title-subtitle">Moon position planning for amateur astronomers.</p>
         </div>
         <div className="title-actions">
-          <button className="btn secondary" type="button" onClick={fetchScene}>
+          <button className="btn secondary" type="button" onClick={() => fetchScene({ force: true })}>
             Refresh
           </button>
           <button className="btn ghost" type="button" onClick={onExit}>
