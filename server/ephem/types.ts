@@ -44,6 +44,7 @@ export type SceneResponse = {
     distanceKm: number;
     angularRadiusArcsec: number;
   };
+  earthDirection: Vec3;
   moons: Array<{
     key: string;
     displayName: string;
@@ -68,6 +69,7 @@ export type SceneResponse = {
       occulted?: boolean;
     };
   }>;
+  features: SurfaceFeature[];
 };
 
 export type OrbitsRequest = {
@@ -103,4 +105,32 @@ export type MoonCatalogEntry = {
   displayName: string;
   class: MoonClass;
   radiusKm?: number;
+};
+
+export type SurfaceFeature = {
+  key: string;
+  displayName: string;
+  system: {
+    latDeg: number;
+    lonDeg: number;
+  };
+  sky: {
+    offsetArcsec: {
+      east: number;
+      north: number;
+      separation: number;
+      positionAngleDeg: number;
+    };
+  };
+  appearance: {
+    onDisk: boolean;
+    visible: boolean;
+    sizeArcsec: {
+      eastWest: number;
+      northSouth: number;
+    };
+  };
+  style?: {
+    color?: string;
+  };
 };

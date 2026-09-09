@@ -6,7 +6,7 @@ import { MOON_CATALOG } from "./ephem/catalog";
 import { WorkerPool } from "./ephem/pool";
 import type { Frame3d, Mode, OrbitsRequest, OrbitsResponse, Quality, SceneRequest, SceneResponse } from "./ephem/types";
 
-const pool = new WorkerPool(Math.min(2, os.cpus().length), new URL("./ephem/worker.ts", import.meta.url));
+const pool = new WorkerPool(Math.min(2, os.cpus().length), new URL("./ephem/worker-bootstrap.mjs", import.meta.url));
 const sceneCache = new LruCache<SceneResponse>(200);
 const orbitsCache = new LruCache<OrbitsResponse>(40);
 
