@@ -20,7 +20,7 @@ const nebulaThemeVars: Record<string, string> = {
 type AppView = "home" | "galaxy" | "jupiter";
 
 export default function App() {
-  const [view, setView] = useState<AppView>("home");
+  const [view, setView] = useState<AppView>("galaxy");
 
   useEffect(() => {
     if (typeof document === "undefined") return;

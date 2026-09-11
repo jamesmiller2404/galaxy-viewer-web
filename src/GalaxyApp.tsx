@@ -16,9 +16,10 @@ type TiltReference = {
   baseForward: vec3;
 };
 
-const DEFAULT_PRESET_NAME = "Andromeda (M31)";
+const DEFAULT_PRESET_NAME = "Spiral (Sa)";
 const TILT_RESPONSE_GAIN = 1.5;
 const DEFAULT_ZOOM_DISTANCE = 75;
+const INITIAL_PITCH_DEG = -26;
 const BLACK_HOLE_COLOR: [number, number, number] = [1, 0.55, 0.35];
 
 type FeaturedPresetCard = {
@@ -71,7 +72,9 @@ export default function GalaxyApp({ onExit }: GalaxyAppProps) {
   const rendererRef = useRef<GalaxyRenderer | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const currentRequestId = useRef(0);
-  const [params, setParams] = useState<GalaxyParameters>({ ...defaultParameters });
+  const [params, setParams] = useState<GalaxyParameters>(
+    () => findPreset(DEFAULT_PRESET_NAME) ?? { ...defaultParameters }
+  );
   const [presetName, setPresetName] = useState<string>(DEFAULT_PRESET_NAME);
   const [, setStatus] = useState("Ready");
   const [generating, setGenerating] = useState(false);
@@ -82,6 +85,7 @@ export default function GalaxyApp({ onExit }: GalaxyAppProps) {
   const [tiltEnabled, setTiltEnabled] = useState(false);
   const [tiltStatus, setTiltStatus] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [introHintOpen, setIntroHintOpen] = useState(true);
   const tiltOrigin = useRef<TiltReference | null>(null);
   const [controlMode, setControlMode] = useState<"explore" | "advanced">("explore");
   const [viewMode, setViewMode] = useState<"single" | "collision">("single");
@@ -145,7 +149,7 @@ export default function GalaxyApp({ onExit }: GalaxyAppProps) {
       renderer.init();
       renderer.resize();
       const { yaw } = renderer.getAngles();
-      renderer.setAngles(yaw, degToRad(-10));
+      renderer.setAngles(yaw, degToRad(INITIAL_PITCH_DEG));
       setRendererReady(true);
       syncCameraReadout();
     } catch (error) {
@@ -652,6 +656,29 @@ export default function GalaxyApp({ onExit }: GalaxyAppProps) {
               <div className="view-actions">
                 <button className="fullscreen-btn is-active" onClick={toggleFullscreenMode} type="button">
                   Exit full view
+                </button>
+              </div>
+            )}
+            {!fullscreenMode && introHintOpen && (
+              <div className="intro-hint" role="status">
+                <div className="intro-hint-title">Welcome to the Galaxy Forms Explorer</div>
+                <ul className="intro-hint-list">
+                  <li>
+                    <strong>Rotate the view:</strong> drag anywhere on the canvas to orbit the galaxy
+                    (pinch or scroll to zoom).
+                  </li>
+                  <li>
+                    <strong>Watch galaxies collide:</strong> click the{" "}
+                    <span className="intro-hint-accent">Collision Lab</span> button in the top-right
+                    corner to launch two galaxies into each other.
+                  </li>
+                </ul>
+                <button
+                  className="btn secondary intro-hint-dismiss"
+                  type="button"
+                  onClick={() => setIntroHintOpen(false)}
+                >
+                  Got it
                 </button>
               </div>
             )}

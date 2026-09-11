@@ -833,6 +833,51 @@ h1 {
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+.intro-hint {
+  position: absolute;
+  left: 12px;
+  bottom: 44px;
+  max-width: 340px;
+  padding: 12px 14px;
+  background: rgba(10, 15, 27, 0.88);
+  color: var(--text);
+  border: 1px solid var(--panel-border);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  font-size: 13px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  z-index: 5;
+}
+
+.intro-hint-title {
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 8px;
+  color: var(--accent);
+}
+
+.intro-hint-list {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  line-height: 1.45;
+}
+
+.intro-hint-list li::marker {
+  color: var(--accent-2);
+}
+
+.intro-hint-accent {
+  color: var(--accent-2);
+  font-weight: 600;
+}
+
+.intro-hint-dismiss {
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
 .tilt-chip {
   position: absolute;
   top: 12px;
